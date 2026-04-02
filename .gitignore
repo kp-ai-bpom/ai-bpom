@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+.env
+checkpoint.pt
+
+# Load testing reports
+reports/
+*.html
+*_stats.csv
+*_stats_history.csv
+*_failures.csv
