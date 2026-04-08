@@ -1,6 +1,6 @@
 <div align="center">
-  <h1>🚀 AI BPOM</h1>
-  <p>FastAPI + Machine Learning + LLM Integration</p>
+  <h1>🚀 AI Services BPOM</h1>
+  <p>FastAPI + LLM Integration untuk Sistem Kepegawaian BPOM</p>
   
   [![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-green.svg)](https://fastapi.tiangolo.com)
   [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
@@ -31,35 +31,24 @@
 
 ## ✨ Features
 
-### 🔍 Topic Modeling
+### 🤖 LLM-Powered Services
 
-- **Embedded Topic Model (ETM)** dengan Word2Vec embeddings
-- 10-step Indonesian NLP preprocessing pipeline
-- LLM-powered data augmentation untuk meningkatkan kualitas topik
-- Automatic topic labeling dan contextualization
-- Support untuk Twitter/social media text
+- **Triple Model Architecture**: Instruct, Think, Deep Think
+- Multi-provider support (OpenAI & Anthropic) dengan automatic fallback
+- Async/Sync invocation support
+- Temperature control dan max_tokens konfigurasi
 
-### 😊 Sentiment Analysis
+### 🏢 Domain Kepegawaian BPOM
 
-- **Dual model architecture**: CNN dan CNN-LSTM
-- Binary classification: Positif/Negatif
-- 12-step preprocessing khusus Indonesian text
-- Confidence scoring untuk setiap prediksi
-- Per-topic sentiment aggregation
-
-### 💭 Emotion Classification
-
-- **Multi-class emotion detection**: Anger, Fear, Joy, Love, Sad, Neutral
-- Dual model: CNN dan BiLSTM
-- Probability distribution untuk semua emotion classes
-- Topic-based emotion analysis
+- **Pemetaan Suksesor**: Sistem pemetaan calon penerus jabatan
+- **Penilaian Suksesor**: Evaluasi dan penilaian kompetensi
+- Modular domain-driven design untuk ekspansi fitur
 
 ### 🔄 System Management
 
-- **Hot-reload ML models** tanpa restart server
-- Model status monitoring
 - Health check endpoints
 - Centralized configuration management
+- Dual provider LLM dengan fallback otomatis
 
 ---
 
@@ -77,40 +66,33 @@
 - **Beanie ODM** - Async MongoDB ODM untuk managed collections
 - **PyMongo** - Native driver untuk external collections
 
-### Machine Learning & NLP
-
-- **TensorFlow/Keras** - Deep learning models (CNN, LSTM, BiLSTM)
-- **OCTIS** - Topic modeling framework (ETM)
-- **Sastrawi** - Indonesian stemming
-- **scikit-learn** - NLP utilities (TF-IDF, preprocessing)
-- **mpstemmer** - Modified Porter Stemmer untuk Indonesian
-- **NLTK** - Natural language toolkit
-
 ### LLM Integration
 
 - **LangChain** - LLM orchestration framework
-- **OpenAI GPT** - Data augmentation dan context generation
+- **OpenAI GPT** - Primary LLM provider
+- **Anthropic Claude** - Fallback LLM provider
+
+### Database
+
+- **PostgreSQL** - Relational database dengan SQLAlchemy async
+- **asyncpg** - Async PostgreSQL driver
 
 ### Package Management
 
 - **uv** - Modern Python package manager (faster than pip)
 
-### Storage
-
-- **MinIO** - Object storage untuk model artifacts (optional)
-
 ---
 
 ## 📦 Prerequisites
 
-- **Python 3.11+** ([Download](https://www.python.org/downloads/))
-- **MongoDB 7.0+** ([Download](https://www.mongodb.com/try/download/community))
+- **Python 3.10+** ([Download](https://www.python.org/downloads/))
+- **PostgreSQL** ([Download](https://www.postgresql.org/download/))
 - **uv** package manager ([Installation](https://github.com/astral-sh/uv))
-- **OpenAI API Key** (untuk LLM features)
+- **OpenAI API Key** atau **Anthropic API Key** (untuk LLM features)
 
 Optional:
 
-- **Docker** (untuk MinIO)
+- **Docker** (untuk PostgreSQL container)
 
 ---
 
@@ -119,8 +101,8 @@ Optional:
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/codelabs-socialabs/socialabs-be-ai.git
-cd socialabs-be-ai
+git clone https://github.com/kp-ai-bpom/ai-bpom.git
+cd ai-bpom
 ```
 
 ### 2. Install Dependencies dengan uv
@@ -129,21 +111,17 @@ cd socialabs-be-ai
 uv sync
 ```
 
-### 3. Setup MongoDB
+### 3. Setup PostgreSQL
 
-Pastikan MongoDB sudah running di `localhost:27017` atau update connection string di `.env`.
-
-```bash
-mongosh --eval "db.version()"
-```
-
-### 4. (Optional) Start MinIO untuk Model Storage
+Pastikan PostgreSQL sudah running di `localhost:5452` atau update connection string di `.env`.
 
 ```bash
+# Dengan Docker
 docker-compose up -d
-```
 
-MinIO Console: `http://localhost:9001` (admin/password123)
+# Atau cek PostgreSQL lokal
+psql --version
+```
 
 ---
 
@@ -161,74 +139,54 @@ cp .env.example .env
 # Environment
 ENV=development
 
-# MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017
-MONGO_DB_NAME=socialabs_ai_db
+# PostgreSQL Configuration
+POSTGRES_URI=postgresql+asyncpg://username:password@localhost:5452/
 
-# OpenAI Configuration (Required untuk LLM features)
+# LLM Provider Configuration (Minimal satu provider diperlukan)
 OPENAI_API_KEY=sk-your-api-key-here
-OPENAI_MODEL_NAME=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1/
+ANTHROPIC_API_KEY=your-anthropic-key-here
 
-# Path Configuration (relative to project root)
-MODELS_BASE_PATH=models/raw
-```
+# AI Base URL (untuk custom endpoint atau proxy)
+AI_BASE_URL=https://api.openai.com/v1/
 
-### 3. Prepare Model Files
-
-Place model files di direktori yang sesuai:
-
-```
-models/raw/
-├── sentiment/
-│   ├── latest_model-cnn-sentiment.h5
-│   ├── latest_tokenizer-cnn-sentiment.pickle
-│   ├── latest_model-cnn-lstm-sentiment.h5
-│   ├── latest_tokenizer-cnn-lstm-sentiment.pickle
-│   └── utils/
-│       ├── kamus.csv
-│       └── stopwords.txt
-├── emotion/
-│   ├── latest_model-cnn-emotion.h5
-│   ├── latest_tokenizer-cnn-emotion.pickle
-│   ├── latest_model-bilstm-emotion.h5
-│   ├── latest_tokenizer-bilstm-emotion.pickle
-│   └── utils/
-│       ├── kamus.csv
-│       └── stopwords.txt
-└── topic_modeling/
-    ├── preprocessing/
-    └── utils/
-        └── kbba.txt
+# Model Names
+AI_INSTRUCT_MODEL_NAME=gpt-4.1      # General purpose
+AI_THINK_MODEL_NAME=gpt-4.1         # Reasoning tasks
+AI_DEEP_THINK_MODEL_NAME=gpt-4.1    # Complex analysis
 ```
 
 ---
 
 ## 🎬 Running the Application
 
+Gunakan `poethepoet` (poe) untuk menjalankan perintah:
+
 ### Development Mode (Auto-reload)
 
 ```bash
-fastapi dev
+poe dev
 ```
 
-Server akan berjalan di: `http://localhost:8000`
+Server akan berjalan di: `http://localhost:8080`
 
 ### Production Mode
 
 ```bash
-fastapi run --workers 5
+poe start
 ```
 
-Gunakan jumlah worker sebanyak 2×jumlah core CPU+1.
+Atau dengan multiple workers:
+
+```bash
+poe prod
+```
 
 ### Verify Installation
 
 Akses endpoints berikut:
 
-- **Health Check**: `http://localhost:8000/system/health`
-- **API Docs (Swagger)**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
+- **API Docs (Swagger)**: `http://localhost:8080/docs`
+- **ReDoc**: `http://localhost:8080/redoc`
 
 ---
 
@@ -242,49 +200,36 @@ Setelah server running, akses Swagger UI untuk interactive API documentation:
 
 ### Endpoint Overview
 
-#### Topic Modeling
+#### Chatbot
 
-- `POST /topics/process` - Process topic modeling dengan ETM
-- `GET /topics/{project_id}` - Get topics untuk project tertentu
+- `POST /api/chatbot/instruct` - General purpose Q&A dengan model instruct
+- `POST /api/chatbot/think` - Reasoning tasks dengan model think
+- `POST /api/chatbot/deep-think` - Complex analysis dengan model deep-think
 
-#### Sentiment Analysis
+#### Pemetaan Suksesor
 
-- `POST /sentiments/classify` - Klasifikasi sentiment (Positif/Negatif)
-- `GET /sentiments/{project_id}` - Get sentiment results
+- Endpoints untuk pemetaan calon penerus jabatan
 
-#### Emotion Classification
+#### Penilaian Suksesor
 
-- `POST /emotions/classify` - Klasifikasi emotion (6 classes)
-- `GET /emotions/{project_id}` - Get emotion results
-
-#### System Management
-
-- `POST /system/reload-models` - Hot-reload semua ML models
-- `GET /system/models-status` - Cek status loading models
-- `GET /system/health` - Health check
+- Endpoints untuk penilaian kompetensi suksesor
 
 ### Example Request
 
 ```bash
-# Topic Modeling
-curl -X POST "http://localhost:8000/topics/process" \
+# Chatbot Instruct Model
+curl -X POST "http://localhost:8080/api/chatbot/instruct" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj123",
-    "keyword": "pemilu",
-    "start_date": "2024-01-01",
-    "end_date": "2024-12-31"
+    "input": "Apa itu sistem kepegawaian BPOM?"
   }'
 
-# Sentiment Analysis
-curl -X POST "http://localhost:8000/sentiments/classify" \
+# Chatbot Think Model
+curl -X POST "http://localhost:8080/api/chatbot/think" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj123"
+    "input": "Analisis kompetensi yang dibutuhkan untuk jabatan direktur"
   }'
-
-# Reload Models
-curl -X POST "http://localhost:8000/system/reload-models"
 ```
 
 ---
@@ -292,54 +237,41 @@ curl -X POST "http://localhost:8000/system/reload-models"
 ## 📁 Project Structure
 
 ```
-new-socialabs-ai/
+ai-services-bpom/
 ├── app/
 │   ├── api/                        # API routing
-│   │   ├── router.py              # Main router
-│   │   └── system.py              # System management endpoints
+│   │   └── router.py              # Main router aggregator
 │   ├── core/                       # Core configuration
-│   │   ├── config.py              # Settings & path management
+│   │   ├── config.py              # Settings via pydantic-settings
 │   │   ├── logger.py              # Custom logger
-│   │   ├── engine.py              # Centralized model manager
-│   │   └── security.py            # Security utilities
+│   │   └── llm.py                 # LLMManager singleton
 │   ├── db/                         # Database setup
-│   │   └── database.py            # MongoDB connection & Beanie init
+│   │   └── database.py            # PostgreSQL connection & SQLAlchemy
 │   ├── domains/                    # Domain-driven modules
-│   │   ├── topic_modeling/
+│   │   ├── chatbot/
 │   │   │   ├── api.py             # Routes
 │   │   │   ├── services.py        # Business logic
 │   │   │   ├── repositories.py    # Data access
-│   │   │   ├── models.py          # Beanie models
-│   │   │   └── schemas.py         # Pydantic schemas
-│   │   ├── sentiment/
+│   │   │   ├── models.py          # SQLAlchemy models
+│   │   │   └── dto/               # Data transfer objects
+│   │   ├── pemetaan_suksesor/     # Pemetaan calon penerus jabatan
 │   │   │   ├── api.py
 │   │   │   ├── services.py
 │   │   │   ├── repositories.py
 │   │   │   ├── models.py
-│   │   │   ├── schemas.py
-│   │   │   └── engine.py          # ML model singleton
-│   │   ├── emotion/
-│   │   │   └── ... (sama seperti sentiment)
-│   │   └── chatbot/
-│   └── shared/                     # Shared utilities
-│       ├── llm.py                 # LangChain LLM singleton
-│       └── deps.py                # Shared dependencies
-├── models/                         # Model artifacts
-│   └── raw/
-│       ├── sentiment/
-│       ├── emotion/
-│       └── topic_modeling/
-├── docs/                           # Documentation
-│   ├── DOCS.md                    # Complete architecture docs
-│   └── MODEL_RELOAD_API.md        # Model reload API guide
-├── test/                           # Tests (coming soon)
-├── .env.example                    # Environment template
-├── .github/
-│   └── copilot-instructions.md    # AI coding guidelines
-├── docker-compose.yml              # MinIO service
+│   │   │   └── schemas.py
+│   │   └── penilaian_suksesor/    # Penilaian kompetensi suksesor
+│   │       ├── api.py
+│   │       ├── services.py
+│   │       ├── repositories.py
+│   │       ├── models.py
+│   │       └── schemas.py
+│   └── server.py                  # App factory with lifespan
+├── docker-compose.yml              # PostgreSQL service
 ├── main.py                         # Application entry point
 ├── pyproject.toml                  # Dependencies & project config
-└── README.md                       # This file
+├── README.md                       # This file
+└── CLAUDE.md                       # AI assistant guidance
 ```
 
 ---
@@ -351,9 +283,8 @@ new-socialabs-ai/
 - **Domain-Driven Design** - Modular architecture per business domain
 - **N-Layer Pattern** - api.py → services.py → repositories.py → models.py
 - **Dependency Injection** - FastAPI `Depends()` untuk loose coupling
-- **Singleton Pattern** - ML models dan LLM connections
+- **Singleton Pattern** - LLM connections via LLMManager
 - **Async/Await** - I/O operations menggunakan async
-- **Thread Pool** - CPU-bound operations dengan `asyncio.to_thread()`
 
 ### Logging Convention
 
@@ -383,56 +314,30 @@ mkdir -p app/domains/new_domain
 touch app/domains/new_domain/{api,services,repositories,models,schemas}.py
 ```
 
-2. Follow canonical pattern dari `topic_modeling` atau `sentiment`
+2. Follow canonical pattern dari `chatbot`
 
-3. Register Beanie models di `app/db/database.py`
+3. Register models di `app/db/database.py`
 
 4. Add router ke `app/api/router.py`
 
 ### Running Tests
 
 ```bash
-# Tests belum diimplementasi
-# Future: pytest dan pytest-asyncio
-pytest
+poe test
 ```
 
 ---
 
-## 🔄 Model Management
+## 🔧 Development Commands
 
-### Update Model Baru
-
-**Workflow**:
-
-1. Upload model files ke folder:
-   - Sentiment: `models/raw/sentiment/`
-   - Emotion: `models/raw/emotion/`
-
-2. Rename sesuai konfigurasi:
-   - `latest_model-cnn-sentiment.h5`
-   - `latest_tokenizer-cnn-sentiment.pickle`
-   - dll.
-
-3. Reload via API:
-
-   ```bash
-   curl -X POST http://localhost:8000/system/reload-models
-   ```
-
-4. Verify:
-   ```bash
-   curl http://localhost:8000/system/models-status
-   ```
-
-### Best Practices
-
-- ⏰ Reload saat traffic rendah (misal: tengah malam)
-- 💾 Backup model lama sebelum replace
-- 🧪 Test model baru di development dulu
-- 📊 Monitor logs saat reload
-
-Lihat [MODEL_RELOAD_API.md](docs/MODEL_RELOAD_API.md) untuk detail lengkap.
+| Command | Description |
+|---------|-------------|
+| `poe dev` | Run development server with auto-reload |
+| `poe start` | Run production server |
+| `poe prod` | Run with 5 workers |
+| `poe test` | Run pytest |
+| `poe check` | Run ruff linter |
+| `poe format` | Format code with ruff |
 
 ---
 
@@ -443,24 +348,27 @@ Lihat [MODEL_RELOAD_API.md](docs/MODEL_RELOAD_API.md) untuk detail lengkap.
 1. **Domain-Driven Design (DDD)** - Modular monolith per domain
 2. **N-Layer Architecture** - Separation of concerns (API, Service, Repository)
 3. **Dependency Injection** - FastAPI Depends()
-4. **Singleton Pattern** - ML models & LLM connections
-5. **Async/Threading** - I/O dengan async, CPU-bound dengan threading
+4. **Singleton Pattern** - LLM connections via LLMManager
+5. **Async Pattern** - I/O operations menggunakan async/await
 
-### Database Strategy (Dual DB Pattern)
+### Database Strategy
 
-- **External Collections** (dari NestJS): PyMongo native
+- **PostgreSQL** dengan SQLAlchemy Async ORM
+- Repository pattern dengan dependency injection
 
   ```python
-  self.tweets_collection = db["tweets"]
-  cursor = await self.tweets_collection.aggregate(pipeline)
+  # Repository
+  class MyRepository:
+      def __init__(self, db: AsyncSession):
+          self._db = db
+  
+  # Service
+  class MyService:
+      def __init__(self, repository: MyRepository):
+          self._repo = repository
   ```
 
-- **AI-generated Collections**: Beanie ODM
-  ```python
-  topics = await TopicsModel.find(TopicsModel.projectId == project_id).to_list()
-  ```
-
-### ML Pipeline Flow
+### Request Flow
 
 ```
 User Request
@@ -468,9 +376,8 @@ User Request
 FastAPI Router (api.py)
     ↓
 Service Layer (services.py)
-    ├→ Repository (repositories.py) → MongoDB
-    ├→ ML Engine (engine.py) → Keras Models
-    └→ LLM Service (llm.py) → OpenAI
+    ├→ Repository (repositories.py) → PostgreSQL
+    └→ LLM Service (llm.py) → OpenAI/Anthropic
     ↓
 Response
 ```
@@ -479,11 +386,7 @@ Response
 
 ## 📖 Documentation
 
-Dokumentasi lengkap tersedia di folder `docs/`:
-
-- **[DOCS.md](docs/DOCS.md)** - Complete architecture & implementation guide
-- **[MODEL_RELOAD_API.md](docs/MODEL_RELOAD_API.md)** - Model reload API documentation
-- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** - AI coding agent guidelines
+- **[CLAUDE.md](CLAUDE.md)** - AI assistant guidance dan development reference
 
 ---
 
@@ -504,8 +407,7 @@ Contributions are welcome! Please follow these guidelines:
 - [ ] Use Dependency Injection
 - [ ] Add logging dengan emoji prefixes
 - [ ] Handle errors properly (HTTPException → generic Exception)
-- [ ] Use `asyncio.to_thread()` untuk CPU-bound operations
-- [ ] Update documentation jika diperlukan
+- [ ] Update CLAUDE.md jika ada perubahan architecture
 
 ---
 
@@ -517,17 +419,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Team
 
-**SociaLabs** - Social Media Analytics Platform
+**BPOM AI Services Team**
 
 ---
 
 ## 🙏 Acknowledgments
 
 - FastAPI framework
-- TensorFlow/Keras team
 - LangChain community
-- OCTIS library maintainers
-- Sastrawi Indonesian NLP toolkit
+- SQLAlchemy team
 
 ---
 
@@ -535,10 +435,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Untuk pertanyaan atau dukungan:
 
-- 📧 Email: support@socialabs.io (example)
-- 🐛 Issues: [GitHub Issues](https://github.com/your-org/new-socialabs-ai/issues)
-- 📖 Docs: [Documentation](docs/DOCS.md)
+- 🐛 Issues: [GitHub Issues](https://github.com/kp-ai-bpom/ai-bpom/issues)
+- 📖 Docs: [CLAUDE.md](CLAUDE.md)
 
 ---
 
-**Made with ❤️ for Indonesian Social Media Analytics**
+**Made with ❤️ for BPOM Kepegawaian System**
