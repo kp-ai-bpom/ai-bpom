@@ -20,3 +20,4 @@ reports/
 *_failures.csv
 
 *.ruff_cache
+*settings.local.json
