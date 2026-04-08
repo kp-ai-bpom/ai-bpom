@@ -1,13 +1,10 @@
 services:
-  minio:
-    image: quay.io/minio/minio
-    container_name: minio-socialabs
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+  postgres:
+    image: zulfifazhar/light-postgres:latest
+    container_name: light_postgres
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password123
-    volumes:
-      - ./models/minio:/data
-    command: server /data --console-address ":9001"
+      POSTGRES_USER: light_postgres
+      POSTGRES_PASSWORD: light_postgres_root
+    ports:
+      - "5452:5432"
+    restart: unless-stopped

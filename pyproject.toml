@@ -1,36 +1,32 @@
 [project]
-name = "new-socialabs-ai"
+name = "ai-services-bpom"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi[standard]>=0.135.1",
-    "levenshtein>=0.27.3",
-    "mpstemmer",
-    "numpy>=2.2.6",
     "python-dotenv>=1.2.1",
-    "sastrawi>=1.0.1",
-    "scikit-learn>=1.7.2",
-    "octis",
-    "tensorflow>=2.20.0",
-    "keras>=3.12.0",
-    "networkx>=3.4.2",
-    "python-louvain>=0.16",
-    "pyvis>=0.3.2",
-    "beanie>=2.0.1",
     "langchain-core>=1.2.17",
     "langchain-openai>=1.1.10",
+    "sqlalchemy>=2.0.48",
+    "asyncpg>=0.31.0",
+    "langchain-anthropic>=1.4.0",
 ]
 
 [dependency-groups]
 dev = [
     "locust>=2.43.3",
+    "poethepoet>=0.43.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.5",
 ]
 
-[tool.uv.sources]
-mpstemmer = { git = "https://github.com/ZulfiFazhar/mpstemmer.git" }
-octis = { git = "https://github.com/ZulfiFazhar/OCTIS.git" }
+[tool.poe.tasks]
+dev = "fastapi dev main.py --port 8080"
+start = "fastapi run main.py --port 8080"
+prod = "fastapi run main.py --port 8080 --workers 5"
+test = "pytest"
+check = "ruff check ."
+format = "ruff format ."

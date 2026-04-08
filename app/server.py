@@ -4,11 +4,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.core.config import settings
+from app.core.llm import init_llm
 from app.core.logger import log
 from app.db.database import init_db
-from app.domains.emotion.engine import get_emotion_models
-from app.domains.sentiment.engine import get_sentiment_models
-from app.shared.llm import init_llm
 
 
 def create_app() -> FastAPI:
@@ -22,25 +21,16 @@ def create_app() -> FastAPI:
 
         log.info("🚀 Starting up server...")
 
-        try:
-            # 1. Inisialisasi Database
-            await init_db()
+        if settings.ENV == "production":
+            try:
+                await init_db()
+                init_llm()
+            except Exception as e:
+                log.error(f"❌ Startup failed: {e}")
+                raise e
 
-            # 2. Inisialisasi & Pre-warm LLM Singleton
-            init_llm()
+        yield
 
-            # 3. Inisialisasi & Pre-warm ML Models Singleton
-            get_sentiment_models().load_models()
-            get_emotion_models().load_models()
-        except Exception as e:
-            log.error(f"❌ Startup failed: {e}")
-            raise e  # Hentikan server jika DB/LLM gagal connect
-
-        yield  # Aplikasi berjalan di titik ini
-
-        # -----------------------------------------------------
-        # SHUTDOWN EVENT
-        # -----------------------------------------------------
         log.info("🛑 Shutting down server...")
         # Lakukan pembersihan (cleanup) memori model AI atau koneksi DB di sini
 

@@ -1,0 +1,1 @@
+print("penilaian-suksesors schemas")
