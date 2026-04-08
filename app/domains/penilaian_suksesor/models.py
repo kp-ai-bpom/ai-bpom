@@ -1,0 +1,1 @@
+print("penilaian-suksesor models")

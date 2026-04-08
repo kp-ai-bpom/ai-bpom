@@ -18,3 +18,5 @@ reports/
 *_stats.csv
 *_stats_history.csv
 *_failures.csv
+
+*.ruff_cache

@@ -1,0 +1,1 @@
+print("pemetaan-suksesors schemas")
