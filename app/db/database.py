@@ -10,9 +10,8 @@ from app.core.logger import log
 Base = declarative_base()
 
 # 2. Setup Async Engine
-# Format URL harus seperti: postgresql+asyncpg://user:password@host:port/dbname
 engine = create_async_engine(
-    settings.POSTGRES_URI,  # Sesuaikan dengan variabel config-mu
+    settings.POSTGRES_URI,
     echo=False,
     future=True,
 )

@@ -36,8 +36,8 @@ def create_app() -> FastAPI:
 
     # Inisialisasi instance FastAPI
     app = FastAPI(
-        title="AI Services API",
-        description="API Modular untuk Topic Modeling, Sentiment, SNA, dan Chatbot",
+        title="AI Service API BPOM",
+        description="AI Service API for Chatbot, Pemetaan Suksesor, and Penilaian Suksesor",
         version="1.0.0",
         lifespan=lifespan,
     )
