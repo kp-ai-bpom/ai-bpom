@@ -372,6 +372,8 @@ Project ini menggunakan **Alembic** untuk database migrations.
 | `poe migration-new "message"` | Buat migration baru (auto-generate dari model) |
 | `poe migration-new-empty "message"` | Buat empty migration file |
 
+**Note**: Untuk migration-new dan migration-new-empty, pesan bisa berisi spasi.
+
 ### Workflow Membuat Migration Baru
 
 1. **Update atau buat model** di `app/domains/{domain}/models.py`
