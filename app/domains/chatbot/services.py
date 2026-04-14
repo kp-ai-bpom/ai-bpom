@@ -56,6 +56,11 @@ class ChatbotService:
         ).ainvoke(messages)
         return str(response.content)
 
+    def embed(self, text: str) -> Optional[List[float]]:
+        """Embed text using the embeddings model"""
+        vector = self._llm_adapter.embeddings.embed_query(text)
+        return vector
+
 
 def get_llm_adapter() -> LLMAdapter:
     """Dependency untuk mendapatkan LLMAdapter"""
