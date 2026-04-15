@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     AI_INSTRUCT_MODEL_NAME: str = os.getenv("AI_INSTRUCT_MODEL_NAME", "gpt-4o-mini")
     AI_THINK_MODEL_NAME: str = os.getenv("AI_THINK_MODEL_NAME", "gpt-4o-mini")
     AI_DEEP_THINK_MODEL_NAME: str = os.getenv("AI_DEEP_THINK_MODEL_NAME", "gpt-4o-mini")
+    AI_EMBEDDINGS_MODEL_NAME: str = os.getenv(
+        "AI_EMBEDDINGS_MODEL_NAME", "text-embedding-large"
+    )
 
     # LLM Adapter Configuration
     LLM_PROVIDER_PRIORITY: str = os.getenv("LLM_PROVIDER_PRIORITY", "openai,anthropic")

@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
 
 from app.core.config import settings
@@ -20,6 +20,7 @@ class LLMAdapter:
     instruct: BaseChatModel
     think: BaseChatModel
     deep_think: BaseChatModel
+    embeddings: OpenAIEmbeddings
 
 
 class LLMManager:
@@ -32,6 +33,7 @@ class LLMManager:
     _instruct: Optional[BaseChatModel] = None
     _think: Optional[BaseChatModel] = None
     _deep_think: Optional[BaseChatModel] = None
+    _embeddings: Optional[OpenAIEmbeddings] = None
 
     def __new__(cls):
         """Override __new__ untuk memastikan hanya satu instance LLMManager yang dibuat."""
@@ -105,6 +107,17 @@ class LLMManager:
                 )
                 log.info("✅ Anthropic Deep Think Model Initialized")
 
+    def get_embeddings(self) -> OpenAIEmbeddings:
+        """Inisialisasi embeddings jika belum ada, lalu kembalikan instance-nya"""
+        if self._embeddings is None:
+            self._embeddings = OpenAIEmbeddings(
+                model=settings.AI_EMBEDDINGS_MODEL_NAME,
+                api_key=SecretStr(settings.OPENAI_API_KEY),
+                base_url=settings.AI_BASE_URL,
+            )
+            log.info("✅ OpenAI Embeddings Initialized")
+        return self._embeddings
+
     def get_llm(self, model_type: str = "instruct") -> BaseChatModel:
         """Inisialisasi LLM jika belum ada, lalu kembalikan instance-nya"""
         if model_type == "instruct":
@@ -157,6 +170,14 @@ class LLMManager:
         except Exception as e:
             log.exception(f"Error invoking LLM: {e}")
             return None
+            
+    def embed(self, text: str) -> Optional[List[float]]:
+        """Embed text using the embeddings model"""
+        try:
+            return self.get_embeddings().embed_query(text)
+        except Exception as e:
+            log.exception(f"Error embedding text: {e}")
+            return None
 
 
 # Dependency Factory
@@ -170,4 +191,5 @@ def init_llm() -> LLMAdapter:
         instruct=manager.get_llm("instruct"),
         think=manager.get_llm("think"),
         deep_think=manager.get_llm("deep_think"),
+        embeddings=manager.get_embeddings(),
     )

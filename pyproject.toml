@@ -12,10 +12,12 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "asyncpg>=0.31.0",
     "langchain-anthropic>=1.4.0",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [dependency-groups]
 dev = [
+    "alembic>=1.18.4",
     "locust>=2.43.3",
     "poethepoet>=0.43.0",
     "pytest>=9.0.2",
@@ -30,3 +32,24 @@ prod = "fastapi run main.py --port 8080 --workers 5"
 test = "pytest"
 check = "ruff check ."
 format = "ruff format ."
+
+# Alembic migration tasks
+migrate = "alembic upgrade head"
+migrate-down = "alembic downgrade -1"
+migrate-down-all = "alembic downgrade base"
+migration-history = "alembic history"
+migration-current = "alembic current"
+
+[tool.poe.tasks.migration-new]
+help = "Create new migration from model changes"
+shell = "alembic revision --autogenerate -m \"$message\""
+
+[tool.poe.tasks.migration-new.args]
+message = { default = "auto migration", positional = true, multiple = true }
+
+[tool.poe.tasks.migration-new-empty]
+help = "Create empty migration file"
+shell = "alembic revision -m \"$message\""
+
+[tool.poe.tasks.migration-new-empty.args]
+message = { default = "empty migration", positional = true, multiple = true }

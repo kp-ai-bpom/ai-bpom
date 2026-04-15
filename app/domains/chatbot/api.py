@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends
 
-from .dto.request import ChatRequest
-from .dto.response import ChatResponse, DataResponse
+from .dto.request import ChatRequest, EmbeddingRequest
+from .dto.response import (
+    ChatDataResponse,
+    ChatResponse,
+    EmbeddingDataResponse,
+    EmbeddingResponse,
+)
 from .services import ChatbotService, get_chatbot_service
 
 router = APIRouter()
@@ -18,7 +23,7 @@ def instruct(
     messages = [{"role": "user", "content": request.input}]
     response = service.instruct(messages)
     return ChatResponse(
-        message="instruct model responded", data=DataResponse(response=response)
+        message="instruct model responded", data=ChatDataResponse(response=response)
     )
 
 
@@ -31,7 +36,7 @@ def think(request: ChatRequest, service: ChatbotService = Depends(get_chatbot_se
     messages = [{"role": "user", "content": request.input}]
     response = service.think(messages)
     return ChatResponse(
-        message="think model responded", data=DataResponse(response=response)
+        message="think model responded", data=ChatDataResponse(response=response)
     )
 
 
@@ -46,5 +51,18 @@ def deep_think(
     messages = [{"role": "user", "content": request.input}]
     response = service.deep_think(messages)
     return ChatResponse(
-        message="deep_think model responded", data=DataResponse(response=response)
+        message="deep_think model responded", data=ChatDataResponse(response=response)
+    )
+
+
+@router.post("/embed", response_model=EmbeddingResponse)
+def embedings(
+    request: EmbeddingRequest, service: ChatbotService = Depends(get_chatbot_service)
+):
+    """
+    Endpoint untuk embedding text.
+    """
+    embedding = service.embed(request.input)
+    return EmbeddingResponse(
+        message="embedding generated", data=EmbeddingDataResponse(embedding=embedding)
     )

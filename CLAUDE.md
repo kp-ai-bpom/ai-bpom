@@ -128,15 +128,16 @@ def get_service(db: AsyncSession = Depends(get_db)) -> MyService:
     return MyService(MyRepository(db))
 ```
 
-**Note**: `init_db()` creates tables on startup in production. Use Alembic for migrations in production.
+**Note**: Use Alembic for database migrations. Run `poe migrate` before starting the server. Do NOT use `init_db()` in production.
 
 ## Adding a New Domain
 
 1. Create domain folder: `app/domains/{domain_name}/`
 2. Create files: `{api,services,repositories,models,schemas}.py`
 3. Follow existing pattern from `chatbot` domain
-4. Register router in `app/api/router.py`
-5. Register models in `app/db/database.py` if needed
+4. Import model in `alembic/env.py` for autogenerate support
+5. Run `poe migration-new "add {domain} table"` to create migration
+6. Register router in `app/api/router.py`
 
 ## Logging Convention
 

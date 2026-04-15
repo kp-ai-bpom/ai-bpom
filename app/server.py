@@ -4,10 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.core.config import settings
 from app.core.llm import init_llm
 from app.core.logger import log
-from app.db.database import init_db
 
 
 def create_app() -> FastAPI:
@@ -21,18 +19,12 @@ def create_app() -> FastAPI:
 
         log.info("🚀 Starting up server...")
 
-        if settings.ENV == "production":
-            try:
-                await init_db()
-                init_llm()
-            except Exception as e:
-                log.error(f"❌ Startup failed: {e}")
-                raise e
+        # Initialize LLM
+        init_llm()
 
         yield
 
         log.info("🛑 Shutting down server...")
-        # Lakukan pembersihan (cleanup) memori model AI atau koneksi DB di sini
 
     # Inisialisasi instance FastAPI
     app = FastAPI(
