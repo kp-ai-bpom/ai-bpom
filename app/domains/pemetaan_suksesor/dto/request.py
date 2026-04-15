@@ -108,3 +108,23 @@ class SimulasiRequest(BaseModel):
     kandidat: List[KandidatSuksesi] = Field(
         ..., min_length=1, max_length=50, description="Daftar kandidat"
     )
+
+
+class SaveMatchingRequest(BaseModel):
+    """Request DTO untuk menyimpan hasil matching ke riwayat."""
+
+    target_jabatan: str = Field(
+        ..., description="Jabatan target suksesi yang digunakan saat matching"
+    )
+    total_kandidat: int = Field(
+        ..., ge=1, description="Total kandidat yang dievaluasi"
+    )
+    top_kandidat: List[Dict] = Field(
+        ..., min_length=1, description="Daftar top kandidat hasil matching"
+    )
+    sub_tugas: Optional[List[Dict]] = Field(
+        None, description="Sub-tugas dekomposisi dari pipeline"
+    )
+    catatan_reviewer: Optional[str] = Field(
+        None, description="Catatan dari reviewer agent"
+    )

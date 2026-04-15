@@ -5,12 +5,16 @@ from fastapi import APIRouter, Depends, Query, status
 
 from .dto.request import (
     KandidatSuksesi,
+    SaveMatchingRequest,
     SimulasiRequest,
     SuksesorCreateRequest,
     SuksesorUpdateRequest,
 )
 from .dto.response import (
     KandidatListResponse,
+    MatchingHistoryDetailResponse,
+    MatchingHistoryListResponse,
+    MatchingHistorySaveResponse,
     NineBoxResponse,
     SimulasiResponse,
     SuksesorDeleteResponse,
@@ -18,8 +22,10 @@ from .dto.response import (
     SuksesorResponse,
 )
 from .services import (
+    MatchingHistoryService,
     SimulationService,
     SuksesorService,
+    get_matching_history_service,
     get_simulation_service,
     get_suksesor_service,
     _load_candidates,
@@ -247,3 +253,56 @@ async def simulasi_pemetaan_suksesor_sampel(
         kandidat_list=kandidat_list,
         top_n=5,
     )
+
+
+# ── Matching History Endpoints ─────────────────────────────────────
+
+
+@router.post(
+    "/match/history",
+    response_model=MatchingHistorySaveResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Simpan Hasil Matching ke Riwayat",
+    description=(
+        "Menyimpan hasil simulasi matching ke database untuk referensi di kemudian hari. "
+        "Kirim data hasil dari endpoint /match atau /match/sampel."
+    ),
+)
+async def save_matching_history(
+    data: SaveMatchingRequest,
+    service: MatchingHistoryService = Depends(get_matching_history_service),
+) -> MatchingHistorySaveResponse:
+    """Save a matching simulation result to history."""
+    return await service.save(data)
+
+
+@router.get(
+    "/match/history",
+    response_model=MatchingHistoryListResponse,
+    summary="Daftar Riwayat Matching",
+    description=(
+        "Mengembalikan daftar riwayat matching yang tersimpan (data ringkas). "
+        "Diurutkan dari yang terbaru."
+    ),
+)
+async def list_matching_history(
+    page: int = Query(1, ge=1, description="Nomor halaman"),
+    page_size: int = Query(10, ge=1, le=100, description="Jumlah item per halaman"),
+    service: MatchingHistoryService = Depends(get_matching_history_service),
+) -> MatchingHistoryListResponse:
+    """Get paginated list of matching history (summary only)."""
+    return await service.get_list(page=page, page_size=page_size)
+
+
+@router.get(
+    "/match/history/{history_id}",
+    response_model=MatchingHistoryDetailResponse,
+    summary="Detail Riwayat Matching",
+    description="Mengembalikan detail lengkap satu riwayat matching berdasarkan ID.",
+)
+async def get_matching_history_detail(
+    history_id: UUID,
+    service: MatchingHistoryService = Depends(get_matching_history_service),
+) -> MatchingHistoryDetailResponse:
+    """Get full detail of a matching history record by ID."""
+    return await service.get_by_id(history_id)

@@ -4,9 +4,10 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.pemetaan_suksesor.models import Suksesor
+from app.domains.pemetaan_suksesor.models import MatchingHistory, Suksesor
 
 from .dto.request import (
+    SaveMatchingRequest,
     SuksesorCreateRequest,
     SuksesorUpdateRequest,
 )
@@ -118,3 +119,47 @@ class SuksesorRepository:
         result = await self._db.execute(query)
         count = result.scalar() or 0
         return count > 0
+
+
+class MatchingHistoryRepository:
+    """Repository for MatchingHistory data access."""
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+
+    async def create(self, data: SaveMatchingRequest) -> MatchingHistory:
+        """Create a new MatchingHistory record."""
+        history = MatchingHistory(**data.model_dump())
+        self._db.add(history)
+        await self._db.commit()
+        await self._db.refresh(history)
+        return history
+
+    async def get_by_id(self, history_id: UUID) -> Optional[MatchingHistory]:
+        """Get a MatchingHistory by ID."""
+        result = await self._db.execute(
+            select(MatchingHistory).where(MatchingHistory.id == history_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_list(
+        self,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> tuple[list[MatchingHistory], int]:
+        """Get paginated list of MatchingHistory ordered by created_at desc."""
+        query = select(MatchingHistory)
+
+        # Get total count
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self._db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Apply pagination
+        query = query.order_by(MatchingHistory.created_at.desc())
+        query = query.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self._db.execute(query)
+        items = list(result.scalars().all())
+
+        return items, total
