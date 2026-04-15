@@ -16,6 +16,7 @@ from app.db.database import get_db
 from .core.agent import AgentAdapter, init_agents
 from .dto.request import (
     KandidatSuksesi,
+    SaveMatchingRequest,
     SuksesorCreateRequest,
     SuksesorUpdateRequest,
 )
@@ -25,23 +26,32 @@ from .dto.response import (
     KandidatListData,
     KandidatListResponse,
     KandidatResult,
-    KandidatRingkasan,
+    MatchingHistoryDetail,
+    MatchingHistoryDetailResponse,
+    MatchingHistoryListData,
+    MatchingHistoryListResponse,
+    MatchingHistorySaveResponse,
+    MatchingHistorySummary,
     NineBoxData,
     NineBoxItem,
     NineBoxResponse,
+    RekamJejakItem,
+    SertifikasiItem,
     SimulasiDataResponse,
     SimulasiResponse,
+    SkpTahunItem,
     SuksesorDataResponse,
     SuksesorDeleteResponse,
     SuksesorListDataResponse,
     SuksesorListResponse,
     SuksesorResponse,
 )
-from .repositories import SuksesorRepository
+from .repositories import MatchingHistoryRepository, SuksesorRepository
 
 # ── Module-level Constants & Caches ────────────────────────────────
 
-_executor = ThreadPoolExecutor(max_workers=4)
+MAX_CONCURRENT_EVALUATIONS = 5
+_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_EVALUATIONS + 1)
 
 _JABATAN_RULES_PATH = Path(__file__).parent / "dto" / "jabatan_rules.json"
 _CANDIDATES_JSON_PATH = Path(__file__).parent / "dto" / "candidates.json"
@@ -333,6 +343,62 @@ def get_suksesor_service(db: AsyncSession = Depends(get_db)) -> SuksesorService:
     return SuksesorService(repository)
 
 
+# ── Matching History Service ─────────────────────────────────────────
+
+
+class MatchingHistoryService:
+    """Service for matching history business logic."""
+
+    def __init__(self, repository: MatchingHistoryRepository):
+        self._repo = repository
+
+    async def save(self, data: SaveMatchingRequest) -> MatchingHistorySaveResponse:
+        """Save a matching result to history."""
+        history = await self._repo.create(data)
+        return MatchingHistorySaveResponse(
+            message="Riwayat matching berhasil disimpan",
+            data=MatchingHistoryDetail.model_validate(history),
+        )
+
+    async def get_by_id(self, history_id: UUID) -> MatchingHistoryDetailResponse:
+        """Get a matching history by ID."""
+        history = await self._repo.get_by_id(history_id)
+        if not history:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Matching history with ID '{history_id}' not found",
+            )
+        return MatchingHistoryDetailResponse(
+            message="Riwayat matching berhasil diambil",
+            data=MatchingHistoryDetail.model_validate(history),
+        )
+
+    async def get_list(
+        self, page: int = 1, page_size: int = 10
+    ) -> MatchingHistoryListResponse:
+        """Get paginated list of matching history."""
+        items, total = await self._repo.get_list(page=page, page_size=page_size)
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        return MatchingHistoryListResponse(
+            message="Daftar riwayat matching berhasil diambil",
+            data=MatchingHistoryListData(
+                items=[MatchingHistorySummary.model_validate(i) for i in items],
+                total=total,
+                page=page,
+                page_size=page_size,
+                total_pages=total_pages,
+            ),
+        )
+
+
+def get_matching_history_service(
+    db: AsyncSession = Depends(get_db),
+) -> MatchingHistoryService:
+    """Dependency injection for MatchingHistoryService."""
+    repository = MatchingHistoryRepository(db)
+    return MatchingHistoryService(repository)
+
+
 # ── Simulation Service ────────────────────────────────────────────
 
 
@@ -391,27 +457,43 @@ class SimulationService:
         sub_tasks = await self._decompose(target_jabatan)
         log.info(f"📋 Tahap 1 selesai — {len(sub_tasks)} sub-tugas")
 
-        # ── Tahap 2+3: RETRIEVAL & VALIDATION (per kandidat) ──────
-        evaluation_results: List[Dict] = []
-        eval_by_id: Dict[str, Dict] = {}  # keyed by id_kandidat for later merge
-        for kandidat in kandidat_list:
+        # ── Tahap 2+3: RETRIEVAL & VALIDATION (per kandidat, paralel) ──
+        # Each concurrent evaluation needs its own Agent instance (Strands doesn't
+        # allow concurrent calls on the same Agent). We use an asyncio.Queue as a
+        # pool — workers borrow an agent, evaluate, then return it.
+        agent_queue: asyncio.Queue = asyncio.Queue()
+        for a in self._agents.analysis_pool:
+            agent_queue.put_nowait(a)
+
+        async def _eval_one(kandidat: KandidatSuksesi) -> Dict:
             kandidat_id = kandidat.kandidat_suksesi.id
             kandidat_nama = kandidat.kandidat_suksesi.nama
-            log.info(f"🔍 Mengevaluasi {kandidat_nama} ({kandidat_id})...")
+            agent = await agent_queue.get()
+            try:
+                log.info(
+                    f"🔍 [paralel] Mengevaluasi {kandidat_nama} ({kandidat_id})..."
+                )
+                evaluation = await self._evaluate_candidate(
+                    kandidat, target_jabatan, sub_tasks, agent=agent
+                )
+                evaluation.setdefault(
+                    "jabatan_saat_ini", kandidat.kandidat_suksesi.jabatan_saat_ini
+                )
+                log.info(f"✅ [paralel] {kandidat_nama} ({kandidat_id}) selesai")
+                return evaluation
+            finally:
+                agent_queue.put_nowait(agent)
 
-            # Extract + Evaluate in one combined agent call
-            evaluation = await self._evaluate_candidate(
-                kandidat, target_jabatan, sub_tasks
-            )
-            # Inject jabatan_saat_ini from source data (agent might omit it)
-            evaluation.setdefault(
-                "jabatan_saat_ini", kandidat.kandidat_suksesi.jabatan_saat_ini
-            )
-            evaluation_results.append(evaluation)
-            eval_by_id[kandidat_id] = evaluation
+        evaluation_results: List[Dict] = list(
+            await asyncio.gather(*[_eval_one(k) for k in kandidat_list])
+        )
+        eval_by_id: Dict[str, Dict] = {
+            r["id_kandidat"]: r for r in evaluation_results if "id_kandidat" in r
+        }
 
         log.info(
-            f"✅ Tahap 2+3 selesai — {len(evaluation_results)} kandidat dievaluasi"
+            f"✅ Tahap 2+3 selesai — {len(evaluation_results)} kandidat dievaluasi "
+            f"(pool={len(self._agents.analysis_pool)})"
         )
 
         # ── Tahap 4: SCORING & RANKING ────────────────────────────
@@ -498,28 +580,39 @@ class SimulationService:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num in valid_boxes:
-                # Compute ringkasan
-                rekam = c.get("rekam_jejak", [])
-                total_pengalaman = sum(r.get("durasi_tahun", 0) for r in rekam)
+                profil = c.get("kandidat_suksesi", {})
 
-                sertifikasi = c.get("sertifikasi", [])
-                sertifikasi_top = [
-                    s.get("nama_sertifikasi", "")
-                    for s in sertifikasi[:2]
-                    if s.get("nama_sertifikasi")
+                rekam_jejak = [
+                    RekamJejakItem(
+                        periode=r.get("periode", ""),
+                        jabatan=r.get("jabatan", ""),
+                        durasi_tahun=r.get("durasi_tahun", 0),
+                        deskripsi_tugas_dan_fungsi=r.get(
+                            "deskripsi_tugas_dan_fungsi", ""
+                        ),
+                    )
+                    for r in c.get("rekam_jejak", [])
                 ]
 
-                skp = c.get("skp", {})
-                skp_rating_terbaru = ""
-                if skp:
-                    # Ambil tahun terbaru (key terakhir secara leksikal)
-                    tahun_terbaru = sorted(skp.keys(), reverse=True)
-                    if tahun_terbaru:
-                        skp_rating_terbaru = skp[tahun_terbaru[0]].get(
-                            "rating_hasil_kerja", ""
-                        )
+                sertifikasi = [
+                    SertifikasiItem(
+                        nama_sertifikasi=s.get("nama_sertifikasi", ""),
+                        tahun=s.get("tahun", 0),
+                        keterangan=s.get("keterangan", ""),
+                    )
+                    for s in c.get("sertifikasi", [])
+                ]
 
-                profil = c.get("kandidat_suksesi", {})
+                skp_raw = c.get("skp", {})
+                skp = {
+                    k: SkpTahunItem(
+                        rating_hasil_kerja=v.get("rating_hasil_kerja", ""),
+                        rating_perilaku_kerja=v.get("rating_perilaku_kerja", ""),
+                        keterangan=v.get("keterangan", ""),
+                    )
+                    for k, v in skp_raw.items()
+                }
+
                 filtered.append(
                     KandidatCard(
                         id=profil.get("id", ""),
@@ -527,11 +620,10 @@ class SimulationService:
                         jabatan_saat_ini=profil.get("jabatan_saat_ini", ""),
                         unit_kerja=profil.get("unit_kerja", ""),
                         box_number=box_num,
-                        ringkasan=KandidatRingkasan(
-                            total_pengalaman_tahun=total_pengalaman,
-                            sertifikasi_top=sertifikasi_top,
-                            skp_rating_terbaru=skp_rating_terbaru,
-                        ),
+                        rekam_jejak=rekam_jejak,
+                        sertifikasi=sertifikasi,
+                        skp=skp,
+                        posisi_nine_box_talenta=posisi,
                     )
                 )
 
@@ -693,8 +785,10 @@ class SimulationService:
         kandidat: KandidatSuksesi,
         target_jabatan: str,
         sub_tasks: List[Dict],
+        agent: Any = None,
     ) -> Dict:
         """Search (extract) + Analysis (L-Eval + C-Eval) untuk satu kandidat."""
+        eval_agent = agent or self._agents.analysis
         kandidat_json = kandidat.model_dump(mode="json")
 
         # Sertakan konteks jabatan dari rules jika ada
@@ -738,7 +832,7 @@ class SimulationService:
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Analysis Agent."
         )
 
-        raw = await _run_agent_async(self._agents.analysis, prompt)
+        raw = await _run_agent_async(eval_agent, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):

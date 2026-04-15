@@ -20,6 +20,9 @@ from app.core.logger import log
 from .config import settings as local_settings
 
 
+ANALYSIS_POOL_SIZE = 5  # Number of analysis agents for concurrent evaluation
+
+
 @dataclass
 class AgentAdapter:
     """
@@ -29,7 +32,8 @@ class AgentAdapter:
 
     orchestrator: Agent
     search: Agent
-    analysis: Agent
+    analysis: Agent  # first analysis agent (backward compat)
+    analysis_pool: List[Agent]  # pool for concurrent evaluations
     synthesis: Agent
     reviewer: Agent
 
@@ -261,7 +265,7 @@ class AgentManager:
 
     def _initialize_default_agents(self):
         """
-        Initialize 5 default BPOM agents.
+        Initialize 5 default BPOM agents + analysis pool.
         Called lazily when first agent is requested.
         """
         if self._agents:
@@ -280,7 +284,21 @@ class AgentManager:
                 tools=[],
             )
 
-        log.info("🚀 All default agents initialized")
+        # Create analysis agent pool for concurrent evaluations
+        for i in range(ANALYSIS_POOL_SIZE):
+            pool_name = f"analysis-{i}"
+            model_tier = self._get_model_tier("analysis")
+            self._agents[pool_name] = self._create_agent(
+                name=pool_name,
+                model_tier=model_tier,
+                system_prompt=DEFAULT_PROMPTS["analysis"],
+                tools=[],
+            )
+
+        log.info(
+            f"🚀 All default agents initialized "
+            f"(analysis pool: {ANALYSIS_POOL_SIZE})"
+        )
 
     def get_agent(self, name: str) -> Optional[Agent]:
         """
@@ -317,10 +335,15 @@ class AgentManager:
         """
         self._initialize_default_agents()
 
+        analysis_pool = [
+            self._agents[f"analysis-{i}"] for i in range(ANALYSIS_POOL_SIZE)
+        ]
+
         return AgentAdapter(
             orchestrator=self._agents["orchestrator"],
             search=self._agents["search"],
             analysis=self._agents["analysis"],
+            analysis_pool=analysis_pool,
             synthesis=self._agents["synthesis"],
             reviewer=self._agents["reviewer"],
         )

@@ -122,12 +122,29 @@ class NineBoxResponse(BaseModel):
     data: NineBoxData
 
 
-class KandidatRingkasan(BaseModel):
-    """Ringkasan kandidat untuk kartu UI (Step 3)."""
+class RekamJejakItem(BaseModel):
+    """Satu entri rekam jejak jabatan kandidat."""
 
-    total_pengalaman_tahun: int
-    sertifikasi_top: List[str]
-    skp_rating_terbaru: str
+    periode: str
+    jabatan: str
+    durasi_tahun: int
+    deskripsi_tugas_dan_fungsi: str
+
+
+class SertifikasiItem(BaseModel):
+    """Satu entri sertifikasi kandidat."""
+
+    nama_sertifikasi: str
+    tahun: int
+    keterangan: str
+
+
+class SkpTahunItem(BaseModel):
+    """Data SKP satu tahun."""
+
+    rating_hasil_kerja: str
+    rating_perilaku_kerja: str
+    keterangan: str
 
 
 class KandidatCard(BaseModel):
@@ -138,7 +155,10 @@ class KandidatCard(BaseModel):
     jabatan_saat_ini: str
     unit_kerja: str
     box_number: int
-    ringkasan: KandidatRingkasan
+    rekam_jejak: List[RekamJejakItem]
+    sertifikasi: List[SertifikasiItem]
+    skp: Dict[str, SkpTahunItem]
+    posisi_nine_box_talenta: str
 
 
 class KandidatListData(BaseModel):
@@ -154,3 +174,62 @@ class KandidatListResponse(BaseModel):
 
     message: str
     data: KandidatListData
+
+
+# ── Matching History Response Schemas ─────────────────────────────
+
+
+class MatchingHistorySummary(BaseModel):
+    """Ringkasan riwayat matching (tanpa JSON blobs)."""
+
+    id: UUID
+    target_jabatan: str
+    total_kandidat: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MatchingHistoryDetail(BaseModel):
+    """Detail lengkap riwayat matching."""
+
+    id: UUID
+    target_jabatan: str
+    total_kandidat: int
+    top_kandidat: List[Dict]
+    sub_tugas: Optional[List[Dict]] = None
+    catatan_reviewer: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MatchingHistoryListData(BaseModel):
+    """Data response daftar riwayat matching dengan paginasi."""
+
+    items: List[MatchingHistorySummary]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class MatchingHistoryListResponse(BaseModel):
+    """Response wrapper untuk daftar riwayat matching."""
+
+    message: str
+    data: MatchingHistoryListData
+
+
+class MatchingHistoryDetailResponse(BaseModel):
+    """Response wrapper untuk detail riwayat matching."""
+
+    message: str
+    data: MatchingHistoryDetail
+
+
+class MatchingHistorySaveResponse(BaseModel):
+    """Response wrapper untuk simpan riwayat matching."""
+
+    message: str
+    data: MatchingHistoryDetail
