@@ -51,7 +51,9 @@ class LLMManager:
                     base_url=settings.AI_BASE_URL,
                     temperature=0.7,
                 )
-                log.info("✅ OpenAI Instruct Model Initialized")
+                log.info(
+                    f"✅ OpenAI Instruct Model Initialized ({settings.AI_INSTRUCT_MODEL_NAME})"
+                )
             else:
                 self._instruct = ChatAnthropic(
                     model_name=settings.AI_INSTRUCT_MODEL_NAME,
@@ -61,7 +63,9 @@ class LLMManager:
                     timeout=60,
                     stop=["\n\nHuman:"],
                 )
-                log.info("✅ Anthropic Instruct Model Initialized")
+                log.info(
+                    f"✅ Anthropic Instruct Model Initialized ({settings.AI_INSTRUCT_MODEL_NAME})"
+                )
 
     def _initialize_think(self):
         """Inisialisasi Think Model jika belum ada"""
@@ -73,7 +77,9 @@ class LLMManager:
                     base_url=settings.AI_BASE_URL,
                     temperature=0.7,
                 )
-                log.info("✅ OpenAI Think Model Initialized")
+                log.info(
+                    f"✅ OpenAI Think Model Initialized ({settings.AI_THINK_MODEL_NAME})"
+                )
             else:
                 self._think = ChatAnthropic(
                     model_name=settings.AI_THINK_MODEL_NAME,
@@ -83,7 +89,9 @@ class LLMManager:
                     timeout=60,
                     stop=["\n\nHuman:"],
                 )
-                log.info("✅ Anthropic Think Model Initialized")
+                log.info(
+                    f"✅ Anthropic Think Model Initialized ({settings.AI_THINK_MODEL_NAME})"
+                )
 
     def _initialize_deep_think(self):
         """Inisialisasi Deep Think Model jika belum ada"""
@@ -95,7 +103,9 @@ class LLMManager:
                     base_url=settings.AI_BASE_URL,
                     temperature=0.7,
                 )
-                log.info("✅ OpenAI Deep Think Model Initialized")
+                log.info(
+                    f"✅ OpenAI Deep Think Model Initialized ({settings.AI_DEEP_THINK_MODEL_NAME})"
+                )
             else:
                 self._deep_think = ChatAnthropic(
                     model_name=settings.AI_DEEP_THINK_MODEL_NAME,
@@ -105,7 +115,9 @@ class LLMManager:
                     timeout=60,
                     stop=["\n\nHuman:"],
                 )
-                log.info("✅ Anthropic Deep Think Model Initialized")
+                log.info(
+                    f"✅ Anthropic Deep Think Model Initialized ({settings.AI_DEEP_THINK_MODEL_NAME})"
+                )
 
     def get_embeddings(self) -> OpenAIEmbeddings:
         """Inisialisasi embeddings jika belum ada, lalu kembalikan instance-nya"""
@@ -115,7 +127,9 @@ class LLMManager:
                 api_key=SecretStr(settings.OPENAI_API_KEY),
                 base_url=settings.AI_BASE_URL,
             )
-            log.info("✅ OpenAI Embeddings Initialized")
+            log.info(
+                f"✅ OpenAI Embeddings Initialized ({settings.AI_EMBEDDINGS_MODEL_NAME})"
+            )
         return self._embeddings
 
     def get_llm(self, model_type: str = "instruct") -> BaseChatModel:
@@ -170,7 +184,7 @@ class LLMManager:
         except Exception as e:
             log.exception(f"Error invoking LLM: {e}")
             return None
-            
+
     def embed(self, text: str) -> Optional[List[float]]:
         """Embed text using the embeddings model"""
         try:

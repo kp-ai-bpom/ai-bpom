@@ -21,3 +21,5 @@ reports/
 
 *.ruff_cache
 *settings.local.json
+
+docs

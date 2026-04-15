@@ -13,6 +13,9 @@ dependencies = [
     "asyncpg>=0.31.0",
     "langchain-anthropic>=1.4.0",
     "psycopg2-binary>=2.9.11",
+    "strands-agents[openai]>=1.35.0",
+    "strands-agents-tools>=0.4.1",
+    "strands-agents-builder>=0.1.10",
 ]
 
 [dependency-groups]
