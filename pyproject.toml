@@ -33,6 +33,7 @@ dev = "fastapi dev main.py --port 8080"
 start = "fastapi run main.py --port 8080"
 prod = "fastapi run main.py --port 8080 --workers 5"
 test = "pytest"
+regression-chatbot = "python scripts/run_chatbot_regression.py"
 check = "ruff check ."
 format = "ruff format ."
 

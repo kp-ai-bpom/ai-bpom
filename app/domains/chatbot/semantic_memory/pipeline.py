@@ -1,4 +1,7 @@
+import csv
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from app.core.llm import LLMAdapter
@@ -24,12 +27,125 @@ _COLUMN_ALIAS_STOPWORDS = {
     "dari",
 }
 
+_BASE_KNOWLEDGE_CSV_PATH = Path(__file__).resolve().parents[4] / "data" / "base_knowledge.csv"
+
+
+def _normalize_alias_key(identifier: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", identifier.strip().lower())
+
+
+def _register_column_alias(
+    aliases_by_table: dict[str, dict[str, set[str]]],
+    table_key: str,
+    alias: str,
+    column_name: str,
+) -> None:
+    normalized_alias = _normalize_alias_key(alias)
+    if not normalized_alias:
+        return
+
+    aliases_by_table.setdefault(table_key, {}).setdefault(normalized_alias, set()).add(
+        column_name
+    )
+
+
+def _register_domain_aliases(
+    aliases_by_table: dict[str, dict[str, set[str]]],
+) -> None:
+    # Known education aliases frequently used in user prompts.
+    education_table = "siap.v_pendidikan_terakhir"
+    for alias in {
+        "nama_pt",
+        "namapt",
+        "perguruan_tinggi",
+        "kampus",
+        "universitas",
+        "universitas_atau_sekolah",
+        "almamater",
+    }:
+        _register_column_alias(aliases_by_table, education_table, alias, "namasekolah")
+
+    for alias in {
+        "nama_prodi",
+        "namaprodi",
+        "prodi",
+        "jurusan",
+        "program_studi",
+    }:
+        _register_column_alias(aliases_by_table, education_table, alias, "programstudi")
+
+    # Common hallucinated person-name fields for pegawai data.
+    pegawai_table = "public.pegawai_tm"
+    for alias in {
+        "first_name",
+        "firstname",
+        "last_name",
+        "lastname",
+        "full_name",
+        "nama_lengkap",
+    }:
+        _register_column_alias(aliases_by_table, pegawai_table, alias, "nama")
+
+
+@lru_cache(maxsize=1)
+def _load_base_knowledge_column_aliases() -> dict[str, dict[str, set[str]]]:
+    aliases_by_table: dict[str, dict[str, set[str]]] = {}
+
+    if not _BASE_KNOWLEDGE_CSV_PATH.exists():
+        _register_domain_aliases(aliases_by_table)
+        return aliases_by_table
+
+    try:
+        with _BASE_KNOWLEDGE_CSV_PATH.open("r", encoding="utf-8", newline="") as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                entity_type = str(row.get("entity_type") or "").strip().lower()
+                if entity_type != "column":
+                    continue
+
+                schema_name = str(row.get("schema_name") or "").strip()
+                table_name = str(row.get("table_name") or "").strip()
+                column_name = str(row.get("column_name") or "").strip()
+                if not schema_name or not table_name or not column_name:
+                    continue
+
+                table_key = f"{schema_name.lower()}.{table_name.lower()}"
+
+                # Always register the physical column name itself.
+                _register_column_alias(
+                    aliases_by_table,
+                    table_key,
+                    alias=column_name,
+                    column_name=column_name,
+                )
+
+                alias_field = str(row.get("column_alias") or "")
+                if alias_field:
+                    for alias in re.split(r"[,;/|]", alias_field):
+                        cleaned_alias = alias.strip()
+                        if not cleaned_alias:
+                            continue
+                        _register_column_alias(
+                            aliases_by_table,
+                            table_key,
+                            alias=cleaned_alias,
+                            column_name=column_name,
+                        )
+    except Exception:
+        # Keep pipeline resilient if CSV cannot be parsed.
+        aliases_by_table = {}
+
+    _register_domain_aliases(aliases_by_table)
+    return aliases_by_table
+
+
 _COLUMN_ALIAS_CANONICAL_MAP = {
     # Frequently produced aliases by LLM for education attributes.
     "namaprodi": "programstudi",
     "prodi": "programstudi",
     "programstudi": "programstudi",
     "namapt": "namasekolah",
+    "perguruantinggi": "namasekolah",
     "universitasatausekolah": "namasekolah",
     "namasekolah": "namasekolah",
     # Common hallucinated person-name columns for pegawai table.
@@ -45,6 +161,10 @@ _COLUMN_TOKEN_EXPANSIONS = {
     "universitas": {"namasekolah"},
     "kampus": {"namasekolah"},
     "sekolah": {"namasekolah"},
+    "perguruan": {"namasekolah"},
+    "tinggi": {"namasekolah"},
+    "almamater": {"namasekolah"},
+    "jurusan": {"programstudi"},
 }
 
 
@@ -126,7 +246,6 @@ class SemanticMemoryPipeline:
         corrected_sql = self._autocorrect_sql_identifiers(sql, schema_tables)
         if corrected_sql != sql:
             sql = corrected_sql
-            explanation = f"{explanation} | Identifier normalization applied from schema"
 
         validation_error = self._sql_generator.validate_sql_candidate(sql)
         if validation_error:
@@ -292,6 +411,7 @@ class SemanticMemoryPipeline:
         schema_tables: list[dict[str, Any]],
     ) -> dict[str, dict[str, Any]]:
         table_metadata: dict[str, dict[str, Any]] = {}
+        base_knowledge_aliases = _load_base_knowledge_column_aliases()
 
         for table in schema_tables:
             schema_name = str(table.get("schema") or "").strip()
@@ -316,6 +436,16 @@ class SemanticMemoryPipeline:
                     continue
                 columns_normalized.setdefault(normalized_key, set()).add(column_name)
 
+            table_key = f"{schema_name.lower()}.{table_name.lower()}"
+            table_aliases_raw = base_knowledge_aliases.get(table_key, {})
+            table_aliases: dict[str, set[str]] = {}
+            for alias_key, candidate_columns in table_aliases_raw.items():
+                valid_columns = {
+                    candidate for candidate in candidate_columns if candidate in columns_exact
+                }
+                if valid_columns:
+                    table_aliases[alias_key] = valid_columns
+
             table_name_canonical = (
                 table_name
                 if re.fullmatch(r"[a-z_][a-z0-9_]*", table_name)
@@ -323,7 +453,7 @@ class SemanticMemoryPipeline:
             )
             canonical_ref = f"{schema_name}.{table_name_canonical}"
 
-            table_metadata[f"{schema_name.lower()}.{table_name.lower()}"] = {
+            table_metadata[table_key] = {
                 "schema": schema_name,
                 "table": table_name,
                 "canonical_ref": canonical_ref,
@@ -331,6 +461,7 @@ class SemanticMemoryPipeline:
                 "columns_exact": columns_exact,
                 "columns_lower_map": columns_lower_map,
                 "columns_normalized": columns_normalized,
+                "column_aliases": table_aliases,
             }
 
         return table_metadata
@@ -406,6 +537,13 @@ class SemanticMemoryPipeline:
             candidates = columns_normalized.get(normalized_key, set())
             if len(candidates) == 1:
                 resolved_column = next(iter(candidates))
+                if resolved_column != column_name:
+                    return f"{alias}.{resolved_column}"
+
+            column_aliases: dict[str, set[str]] = metadata.get("column_aliases", {})
+            alias_candidates = column_aliases.get(normalized_key, set())
+            if len(alias_candidates) == 1:
+                resolved_column = next(iter(alias_candidates))
                 if resolved_column != column_name:
                     return f"{alias}.{resolved_column}"
 

@@ -46,6 +46,8 @@ _PROMPT_EXAMPLES = """Examples (MUST follow this JSON format):
 
 {"query": "SELECT p.nama, f.nama_fungsi FROM public.pegawai_tm p JOIN siap.R_FUNGSI f ON p.fungsi_id = f.id WHERE p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN')", "explanation": "Menampilkan pegawai aktif dengan nama fungsi"}
 
+{"query": "SELECT DISTINCT ON (p.pegawai_id) p.nama, j.jabatan_nama, vpt.namasekolah, vpt.programstudi FROM public.pegawai_tm p JOIN public.jabatan_tm j ON p.jabatan_id = j.jabatan_id JOIN siap.\"V_PENDIDIKAN_TERAKHIR\" vpt ON vpt.pegawaiid = p.pegawai_id WHERE lower(trim(vpt.namasekolah)) = lower(trim('Universitas Komputer Indonesia')) AND (lower(j.jabatan_nama) LIKE '%ahli komputer%' OR lower(j.jabatan_nama) LIKE '%pranata komputer%') AND p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') ORDER BY p.pegawai_id, vpt.ranking ASC NULLS LAST", "explanation": "Menampilkan satu baris per pegawai ahli/pranata komputer lulusan Universitas Komputer Indonesia tanpa duplikasi karena perbedaan huruf besar-kecil"}
+
 Contoh mapping pertanyaan ke query referensi:
 {
     "question": "Tampilkan rekapitulasi jumlah pegawai berdasarkan jenis kelamin pada setiap tipe unit kerja",
@@ -53,7 +55,7 @@ Contoh mapping pertanyaan ke query referensi:
 }
 {
     "question": "Tampilkan rekapitulasi jumlah pegawai berdasarkan pendidikan terakhir pada setiap tipe unit kerja",
-    "ground_truth_query": "SELECT\n  CASE\n  WHEN s.tipe_balai = 'P' THEN 'Unit Kerja Pusat'\n  WHEN s.tipe_balai = 'B' THEN 'UPT Balai Besar / Balai POM'\n  WHEN s.tipe_balai IN ('BA','BB') THEN 'UPT Balai Besar / Balai POM'\n  WHEN s.tipe_balai = 'L' THEN 'UPT Loka POM'\n  END AS tipe_unit_kerja,\n  COUNT(DISTINCT p.nama) AS total_pegawai,\n  SUM(CASE WHEN pd.pendidikan IS NULL THEN 1 ELSE 0 END) AS kosong,\n  SUM(CASE WHEN pd.pendidikan LIKE '%SLTA%' THEN 1 ELSE 0 END) AS kurangd3,\n  SUM(CASE WHEN pd.pendidikan = 'D3' THEN 1 ELSE 0 END) AS d3,\n  SUM(CASE WHEN pd.pendidikan IN ('D4','S1') THEN 1 ELSE 0 END) AS d4_s1,\n  SUM(CASE WHEN pd.pendidikan = 'Profesi' THEN 1 ELSE 0 END) AS profesi,\n  SUM(CASE WHEN pd.pendidikan = 'S2' THEN 1 ELSE 0 END) AS s2,\n  SUM(CASE WHEN pd.pendidikan = 'S3' THEN 1 ELSE 0 END) AS s3\n FROM public.pegawai_tm p\n JOIN public.\"SIAP_SATKER_TOP\" s\n  ON p.satker_top_id = s.satker_id\n LEFT JOIN (\n  SELECT DISTINCT ON (pendidikan_id)\n  pendidikan_id,\n  pendidikan\n  FROM siap.\"V_PENDIDIKAN_TERAKHIR\"\n  ORDER BY pendidikan_id DESC\n ) pd\n ON p.pendidikan_top_id = pd.pendidikan_id\n GROUP BY tipe_unit_kerja"
+    "ground_truth_query": "SELECT\n  CASE\n  WHEN s.tipe_balai = 'P' THEN 'Unit Kerja Pusat'\n  WHEN s.tipe_balai = 'B' THEN 'UPT Balai Besar / Balai POM'\n  WHEN s.tipe_balai IN ('BA','BB') THEN 'UPT Balai Besar / Balai POM'\n  WHEN s.tipe_balai = 'L' THEN 'UPT Loka POM'\n  END AS tipe_unit_kerja,\n  COUNT(DISTINCT p.nama) AS total_pegawai,\n  SUM(CASE WHEN p.pendidikan_top_id IS NULL THEN 1 ELSE 0 END) as unset,\n  SUM(CASE WHEN p.pendidikan_top_id IN ('01','02','03','04','05','06','07') THEN 1 ELSE 0 END) as under_d3,\n  SUM(CASE WHEN p.pendidikan_top_id='08' THEN 1 ELSE 0 END) as d3,\n  SUM(CASE WHEN p.pendidikan_top_id IN ('09','10','11') THEN 1 ELSE 0 END) as d4_s1,\n  SUM(CASE WHEN p.pendidikan_top_id='12' THEN 1 ELSE 0 END) as profesi,\n  SUM(CASE WHEN p.pendidikan_top_id='13' THEN 1 ELSE 0 END) as s2,\n  SUM(CASE WHEN p.pendidikan_top_id='14' THEN 1 ELSE 0 END) as s3\n FROM public.pegawai_tm p\n JOIN public.\"SIAP_SATKER_TOP\" s\n  ON p.satker_top_id = s.satker_id\n GROUP BY tipe_unit_kerja"
 }
 {
     "question": "Tampilkan rekapitulasi jumlah pegawai berdasarkan kelompok usia pada setiap tipe unit kerja",
@@ -326,6 +328,8 @@ class SQLGenerator:
     - status_pegawai IN ('CPNS', 'PNS', 'POLRI', 'PPPK')
     - kedudukan_pegawai IN ('Aktif', 'Tugas Belajar', 'CLTN')
 14. Aturan default filter pegawai di atas memiliki prioritas lebih tinggi daripada contoh historis mana pun.
+15. Saat query daftar pegawai melakukan JOIN ke siap."V_PENDIDIKAN_TERAKHIR", cegah duplikasi dengan memilih satu baris per pegawai (gunakan DISTINCT ON (p.pegawai_id) atau ROW_NUMBER). Jika memfilter nama sekolah/program studi, gunakan perbandingan case-insensitive ter-normalisasi, misalnya lower(trim(vpt.namasekolah)) = lower(trim('...')).
+16. JANGAN gunakan sintaks PostgreSQL yang tidak valid: COUNT(DISTINCT ON (...)). Untuk menghitung jumlah unik per pegawai, gunakan COUNT(DISTINCT p.pegawai_id) atau COUNT(*) dari subquery yang sudah dedupe (misalnya SELECT DISTINCT ON (p.pegawai_id) ...).
 
 # Examples
 {_PROMPT_EXAMPLES}
