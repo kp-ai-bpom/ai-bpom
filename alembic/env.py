@@ -27,10 +27,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with the one from settings
-# Convert async URL to sync URL for alembic (replace asyncpg with psycopg2)
-db_url = settings.POSTGRES_URI.replace("+asyncpg", "")
-config.set_main_option("sqlalchemy.url", db_url)
+# Override sqlalchemy.url with the one from settings.
+# This env uses async_engine_from_config, so keep the async driver URL.
+config.set_main_option("sqlalchemy.url", settings.POSTGRES_URI)
 
 
 def run_migrations_offline() -> None:
