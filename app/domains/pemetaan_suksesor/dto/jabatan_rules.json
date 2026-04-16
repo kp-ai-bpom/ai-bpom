@@ -1,0 +1,45 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Inspektur I",
+    "atasan_langsung": "Inspektur Utama",
+    "tugas": "melaksanakan penyusunan kebijakan teknis dan pelaksanaan pengawasan intern serta penyusunan laporan hasil pengawasan di lingkup satuan kerja dan wilayah tertentu.",
+    "fungsi": [
+      "penyusunan kebijakan teknis pengawasan intern di lingkup satuan kerja dan wilayah tugas Inspektorat I",
+      "pelaksanaan pengawasan intern terhadap kinerja dan keuangan melalui audit, reviu, evaluasi, pemantauan, dan kegiatan pengawasan lainnya di lingkup satuan kerja dan wilayah tugas Inspektorat I",
+      "penyusunan laporan hasil pengawasan di lingkup satuan kerja dan wilayah tugas Inspektorat I",
+      "pemantauan dan evaluasi pelaksanaan penjaminan kualitas tata kelola, manajemen risiko, dan pengendalian intern satuan kerja dan wilayah tugas Inspektorat I",
+      "koordinasi pengawasan intern di lingkup satuan kerja dan wilayah tugas Inspektorat I",
+      "pelaksanaan urusan tata usaha Inspektorat I"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Pegawai Negeri Sipil",
+    "usia_maksimal": "56 (lima puluh enam) tahun ketika pelantikan",
+    "pangkat_golongan": "Sekurang-kurangnya Pembina Tk. I, IV/b",
+    "kualifikasi_pendidikan": "Paling rendah Sarjana (S1), diutamakan Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Administrator (Eselon III) atau Jabatan Fungsional Ahli Madya paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan telah mengikuti/lulus Diklat Kepemimpinan Tingkat III, dan/atau Tingkat II",
+    "penilaian_prestasi": "Semua unsur sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat",
+    "kesehatan": "Sehat jasmani dan rohani (dibuktikan dengan surat keterangan dokter)",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas",
+      "Memiliki rekam jejak jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, teknis, dan jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik (lisan maupun tulisan)",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Paling singkat 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Mampu memberikan masukan kepada pimpinan organisasi dan menjadi katalisator perubahan",
+        "Menerapkan perencanaan audit tahunan berbasis risiko sesuai standar",
+        "Mengembangkan kebijakan penerapan standar audit dan memelihara QAIP",
+        "Menyakinkan penerapan Tata Kelola, Manajemen Risiko, dan Pengendalian Intern (TKMRPI)",
+        "Mengevaluasi dan memberikan pandangan komprehensif mengenai profil risiko organisasi",
+        "Mampu mengendalikan mutu pelaksanaan audit intern",
+        "Mampu mengembangkan lingkungan yang menerima perubahan dan inovatif untuk kebutuhan pemangku kepentingan"
+      ]
+    }
+  }
+}

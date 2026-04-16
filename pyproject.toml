@@ -12,6 +12,10 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "asyncpg>=0.31.0",
     "langchain-anthropic>=1.4.0",
+    "psycopg2-binary>=2.9.11",
+    "strands-agents[openai]>=1.35.0",
+    "strands-agents-tools>=0.4.1",
+    "strands-agents-builder>=0.1.10",
 ]
 
 [dependency-groups]
@@ -40,11 +44,15 @@ migration-history = "alembic history"
 migration-current = "alembic current"
 
 [tool.poe.tasks.migration-new]
-help = "Create a new migration with auto-generated name"
-shell = "alembic revision --autogenerate -m \"$1\""
-args = [{ name = "message", help = "Migration message/description", default = "auto migration" }]
+help = "Create new migration from model changes"
+shell = "alembic revision --autogenerate -m \"$message\""
+
+[tool.poe.tasks.migration-new.args]
+message = { default = "auto migration", positional = true, multiple = true }
 
 [tool.poe.tasks.migration-new-empty]
-help = "Create an empty migration file manually"
-shell = "alembic revision -m \"$1\""
-args = [{ name = "message", help = "Migration message/description", default = "empty migration" }]
+help = "Create empty migration file"
+shell = "alembic revision -m \"$message\""
+
+[tool.poe.tasks.migration-new-empty.args]
+message = { default = "empty migration", positional = true, multiple = true }

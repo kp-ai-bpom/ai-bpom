@@ -1,0 +1,54 @@
+{
+  "kandidat_suksesi": {
+    "id": "KANDIDAT-001",
+    "profil": {
+      "nama": "Dr. Budi Santoso, M.Si., Apt.",
+      "jabatan_saat_ini": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
+      "unit_kerja": "Inspektorat Utama, Badan Pengawas Obat dan Makanan"
+    }
+  },
+  "rekam_jejak": [
+    {
+      "periode": "2022 - 2026",
+      "jabatan": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
+      "durasi_tahun": 4,
+      "deskripsi_tugas_dan_fungsi": "Berperan aktif menjadi katalisator perubahan di lingkungan inspektorat, memberikan masukan strategis secara komprehensif kepada pimpinan organisasi mengenai profil risiko saat ini, serta mengevaluasi tata kelola, manajemen risiko, dan pengendalian intern organisasi."
+    },
+    {
+      "periode": "2018 - 2022",
+      "jabatan": "Auditor Ahli Madya pada Inspektorat I",
+      "durasi_tahun": 4,
+      "deskripsi_tugas_dan_fungsi": "Mengendalikan mutu pelaksanaan audit intern, menerapkan perencanaan audit tahunan berbasis risiko yang sesuai dengan standar, serta mengembangkan dan memelihara Quality Assurance and Improvement Program (QAIP)."
+    }
+  ],
+  "sertifikasi": [
+    {
+      "nama_sertifikasi": "Diklat Kepemimpinan Tingkat III",
+      "tahun": 2019,
+      "keterangan": "Lulus dengan predikat Sangat Memuaskan"
+    },
+    {
+      "nama_sertifikasi": "Sertifikasi Auditor Internal Berbasis Risiko",
+      "tahun": 2020,
+      "keterangan": "Sertifikasi kompetensi teknis audit"
+    },
+    {
+      "nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)",
+      "tahun": 2024,
+      "keterangan": "Skor 580 (Mampu berbahasa Inggris dengan baik secara lisan maupun tulisan)"
+    }
+  ],
+  "skp": {
+    "tahun_2024": {
+      "rating_hasil_kerja": "Di Atas Ekspektasi",
+      "rating_perilaku_kerja": "Sesuai Ekspektasi",
+      "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"
+    },
+    "tahun_2025": {
+      "rating_hasil_kerja": "Di Atas Ekspektasi",
+      "rating_perilaku_kerja": "Di Atas Ekspektasi",
+      "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"
+    },
+    "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
+  }
+}
