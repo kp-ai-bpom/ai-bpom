@@ -150,6 +150,8 @@ class SimulationService:
                 sub_tugas=sub_tasks,
                 catatan_reviewer=review_note,
             ),
+            input_token=f"{self._total_input_tokens} token",
+            output_token=f"{self._total_output_tokens} token",
         )
 
     # ── Nine-Box & Kandidat Data ────────────────────────────────────
@@ -362,7 +364,7 @@ class SimulationService:
                 f"📋 Tahap 1 (agent-only): mendekomposisi '{target_jabatan}' dari pengetahuan LLM"
             )
 
-        raw = await _run_agent_async(self._agents.orchestrator, prompt)
+        raw = await self._run_and_track(self._agents.orchestrator, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict) and "sub_tasks" in parsed:
@@ -453,7 +455,7 @@ class SimulationService:
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Analysis Agent."
         )
 
-        raw = await _run_agent_async(eval_agent, prompt)
+        raw = await self._run_and_track(eval_agent, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
@@ -515,7 +517,7 @@ class SimulationService:
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Synthesis Agent."
         )
 
-        raw = await _run_agent_async(self._agents.synthesis, prompt)
+        raw = await self._run_and_track(self._agents.synthesis, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict) and "peringkat" in parsed:
@@ -563,7 +565,7 @@ class SimulationService:
             "Output WAJIB JSON sesuai format Reviewer Agent."
         )
 
-        raw = await _run_agent_async(self._agents.reviewer, prompt)
+        raw = await self._run_and_track(self._agents.reviewer, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
