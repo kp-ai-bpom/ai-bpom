@@ -16,6 +16,7 @@ dependencies = [
     "strands-agents[openai]>=1.35.0",
     "strands-agents-tools>=0.4.1",
     "strands-agents-builder>=0.1.10",
+    "tiktoken>=0.12.0",
     "toon-format>=0.9.0b1",
 ]
 

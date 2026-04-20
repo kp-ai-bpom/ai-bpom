@@ -95,6 +95,8 @@ class SimulasiResponse(BaseModel):
 
     message: str
     data: SimulasiDataResponse
+    input_token: str = "0 token"
+    output_token: str = "0 token"
 
 
 class NineBoxItem(BaseModel):
