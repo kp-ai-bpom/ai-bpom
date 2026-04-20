@@ -22,4 +22,9 @@ reports/
 *.ruff_cache
 *settings.local.json
 
+data/
+scripts/
 docs
+
+# macOS
+.DS_Store
