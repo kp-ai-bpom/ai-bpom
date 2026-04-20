@@ -7,6 +7,7 @@ from app.core.llm import LLMAdapter
 from app.core.logger import log
 
 from ..repositories import ChatbotRepository
+from ..toon import TOON_NA, encode_table_with_max_chars
 from .config import QuestionRewritingConfig
 from .parsers import parse_rewritten, strip_thinking
 from .prompts import REWRITE_SYSTEM_PROMPT, build_user_prompt
@@ -14,6 +15,26 @@ from .types import EpisodicMatch, RewriteResult
 
 
 _TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
+
+_WORKING_MEMORY_FIELDS = (
+    "turn_index",
+    "role",
+    "content",
+    "timestamp",
+)
+
+_EPISODIC_MEMORY_FIELDS = (
+    "episode_id",
+    "session_id",
+    "similarity",
+    "message_count",
+    "last_message_at",
+    "conversation_summary",
+    "recent_context",
+    "tags",
+    "what_worked",
+    "what_to_avoid",
+)
 
 
 class QuestionRewritingService:
@@ -96,15 +117,27 @@ class QuestionRewritingService:
         if not recent:
             return ""
 
-        lines = [f"{item['role'].upper()}: {item['content']}" for item in recent]
-        result = "\n".join(lines)
-        if len(result) > self._config.max_working_snippet_chars:
-            result = result[-self._config.max_working_snippet_chars :]
-            first_break = result.find("\n")
-            if first_break > 0:
-                result = result[first_break + 1 :]
+        working_rows: list[dict[str, Any]] = []
+        for item in recent:
+            working_rows.append(
+                {
+                    "turn_index": int(item.get("turn_index") or 0),
+                    "role": str(item.get("role") or "").strip(),
+                    "content": str(item.get("content") or "").strip(),
+                    "timestamp": str(item.get("timestamp") or "").strip(),
+                }
+            )
 
-        return result
+        encoded = encode_table_with_max_chars(
+            name="working_memory",
+            rows=working_rows,
+            fields=_WORKING_MEMORY_FIELDS,
+            max_chars=self._config.max_working_snippet_chars,
+            trim_from_start=True,
+        )
+        if encoded == TOON_NA:
+            return ""
+        return encoded
 
     def remove_session_memory(self, user_id: str, session_id: str) -> None:
         self.clear_session_memory(user_id=user_id, session_id=session_id)
@@ -182,33 +215,40 @@ class QuestionRewritingService:
         if not episodes:
             return ""
 
-        blocks: list[str] = []
-        total_chars = 0
+        episodic_rows: list[dict[str, Any]] = []
 
-        for index, episode in enumerate(episodes, start=1):
-            tags = episode.get("context_tags") or []
-            tags_text = ", ".join([str(tag) for tag in tags])
-            message_count = int(episode.get("message_count") or 0)
+        for episode in episodes:
+            tags = [str(tag) for tag in (episode.get("context_tags") or []) if str(tag)]
             last_message_at = episode.get("last_message_at")
             last_message_at_text = str(last_message_at) if last_message_at else "-"
             recent_context = str(episode.get("conversation", ""))[:220]
-            block = (
-                f"Episode {index} (similarity={float(episode.get('similarity', 0.0)):.2f}):\n"
-                f"- conversation_summary: {episode.get('conversation_summary', '')}\n"
-                f"- session_size: {message_count} messages\n"
-                f"- last_message_at: {last_message_at_text}\n"
-                f"- recent_context: {recent_context}\n"
-                f"- tags: {tags_text}\n"
-                f"- what_worked: {episode.get('what_worked', '')}\n"
-                f"- what_to_avoid: {episode.get('what_to_avoid', '')}"
+            episodic_rows.append(
+                {
+                    "episode_id": int(episode.get("id") or 0),
+                    "session_id": str(episode.get("session_id") or "").strip(),
+                    "similarity": f"{float(episode.get('similarity') or 0.0):.2f}",
+                    "message_count": int(episode.get("message_count") or 0),
+                    "last_message_at": last_message_at_text,
+                    "conversation_summary": str(
+                        episode.get("conversation_summary") or ""
+                    ).strip(),
+                    "recent_context": recent_context,
+                    "tags": tags,
+                    "what_worked": str(episode.get("what_worked") or "").strip(),
+                    "what_to_avoid": str(episode.get("what_to_avoid") or "").strip(),
+                }
             )
-            if total_chars + len(block) > self._config.max_episodic_snippet_chars:
-                break
 
-            blocks.append(block)
-            total_chars += len(block)
-
-        return "\n\n".join(blocks)
+        encoded = encode_table_with_max_chars(
+            name="episodic_memory",
+            rows=episodic_rows,
+            fields=_EPISODIC_MEMORY_FIELDS,
+            max_chars=self._config.max_episodic_snippet_chars,
+            trim_from_start=False,
+        )
+        if encoded == TOON_NA:
+            return ""
+        return encoded
 
     async def sync_session_to_episodic(self, user_id: str, session_id: str) -> int | None:
         await self._ensure_table_ready()

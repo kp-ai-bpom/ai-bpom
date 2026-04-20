@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from app.core.logger import log
+
 from .dto.request import (
     ChatRequest,
     DeleteSessionRequest,
@@ -148,8 +150,20 @@ async def send_message(
             session_id=request.session_id,
         )
     except ValueError as exc:
+        log.warning(
+            "Invalid /chat request user_id=%s session_id=%s error=%s",
+            request.user_id,
+            request.session_id,
+            str(exc),
+        )
         return _error_response(status_code=400, error=str(exc))
     except Exception:
+        log.exception(
+            "Failed to process /chat request user_id=%s session_id=%s message=%r",
+            request.user_id,
+            request.session_id,
+            request.message,
+        )
         return _error_response(
             status_code=500,
             error="Failed to process message",

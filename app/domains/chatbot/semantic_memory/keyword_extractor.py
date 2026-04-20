@@ -1,5 +1,7 @@
 from app.core.llm import LLMAdapter
 
+from ..toon import encode_table
+
 from .parsers import extract_json_array, strip_thinking, tokenize_keywords_fallback
 
 
@@ -45,11 +47,23 @@ class KeywordExtractor:
         if not query:
             return []
 
-        schema_lines = []
+        allowed_table_rows: list[dict[str, object]] = []
         for schema_name, table_names in self._allowed_tables.items():
-            table_hint = ", ".join(table_names)
-            schema_lines.append(f"- {schema_name}: {table_hint}")
-        schema_context = "\n".join(schema_lines) if schema_lines else "- public: (tidak tersedia)"
+            filtered_tables = [table for table in table_names if table]
+            if not schema_name or not filtered_tables:
+                continue
+            allowed_table_rows.append(
+                {
+                    "schema": schema_name,
+                    "tables": filtered_tables,
+                }
+            )
+
+        schema_context = encode_table(
+            name="allowed_tables",
+            rows=allowed_table_rows,
+            fields=("schema", "tables"),
+        )
 
         system_prompt = f"""# Introduction
 Anda akan diberikan pertanyaan pengguna yang dapat dijawab dengan melakukan kueri pada sistem basis data. Tujuan Anda adalah menganalisis pertanyaan untuk mengidentifikasi dan mengekstrak kata kunci (keywords) dan frasa kunci (keyphrases) yang dapat membantu menunjukkan bagian mana dari skema basis data yang harus digunakan.

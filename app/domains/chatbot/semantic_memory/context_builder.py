@@ -1,12 +1,50 @@
 from typing import Any
 
+from ..toon import TOON_NA, encode_table_with_max_chars
+
 from .types import RetrievedTable
+
+
+_SCHEMA_TABLE_FIELDS = (
+    "schema",
+    "table",
+    "sql_ref",
+    "score",
+    "description",
+)
+
+_SCHEMA_COLUMN_FIELDS = (
+    "schema",
+    "table",
+    "column",
+    "type",
+    "similarity",
+    "samples",
+)
 
 
 class ContextBuilder:
     def __init__(self, column_similarity_threshold: float, max_context_chars: int):
         self._column_similarity_threshold = column_similarity_threshold
         self._max_context_chars = max_context_chars
+
+    @staticmethod
+    def _is_key_column(column_name: str) -> bool:
+        lowered = column_name.lower()
+        return (
+            lowered == "id"
+            or lowered.startswith("id")
+            or lowered.endswith("_id")
+            or lowered.endswith("_kode")
+            or lowered == "nip"
+            or lowered.endswith("_nip")
+        )
+
+    @staticmethod
+    def _resolve_sql_ref(schema_name: str, table_name: str) -> str:
+        if table_name != table_name.lower():
+            return f'{schema_name}."{table_name}"'
+        return f"{schema_name}.{table_name}"
 
     def build(
         self,
@@ -19,7 +57,7 @@ class ContextBuilder:
         table_descriptions = table_descriptions or {}
 
         if not predicted_tables:
-            return ""
+            return TOON_NA
 
         relevant_keys = set(predicted_tables.keys())
         selected_tables = [
@@ -32,11 +70,13 @@ class ContextBuilder:
             reverse=True,
         )
 
-        parts: list[str] = []
-        total_chars = 0
+        table_rows: list[dict[str, Any]] = []
+        column_rows: list[dict[str, Any]] = []
 
         for table in selected_tables:
-            table_key = f"{table['schema']}.{table['name']}"
+            table_schema = str(table["schema"])
+            table_name = str(table["name"])
+            table_key = f"{table_schema}.{table_name}"
             predicted = predicted_tables[table_key]
             score = predicted.score
             per_column_score = predicted.column_scores
@@ -48,81 +88,84 @@ class ContextBuilder:
             else:
                 max_data_columns = 3
 
-            table_name = table["name"]
-            if table_name != table_name.lower():
-                sql_ref = f"{table['schema']}.\"{table_name}\""
-            else:
-                sql_ref = table_key
+            table_description = str(table_descriptions.get(table_key) or "")
+            table_rows.append(
+                {
+                    "schema": table_schema,
+                    "table": table_name,
+                    "sql_ref": self._resolve_sql_ref(table_schema, table_name),
+                    "score": f"{score:.3f}",
+                    "description": table_description[:220],
+                }
+            )
 
-            header = f"\n## Table: {sql_ref} (score: {score:.3f})"
-            parts.append(header)
-            total_chars += len(header)
-
-            table_description = table_descriptions.get(table_key)
-            if table_description:
-                line = f"Description: {table_description}"
-                parts.append(line)
-                total_chars += len(line)
-
-            parts.append("Columns:")
-            total_chars += len("Columns:")
-
-            retrieved_columns: list[tuple[float, str]] = []
-            key_columns: list[tuple[float, str]] = []
+            retrieved_columns: list[tuple[float, dict[str, Any]]] = []
+            key_columns: list[tuple[float, dict[str, Any]]] = []
 
             for column in table["columns"]:
                 column_name = str(column["name"])
                 column_type = str(column["type"])
                 col_similarity = float(per_column_score.get(column_name, 0.0))
 
-                sample_key = (str(table["schema"]), str(table["name"]), column_name)
+                sample_key = (table_schema, table_name, column_name)
                 sample_values = samples.get(sample_key, [])
-                sample_str = ""
-                if sample_values:
-                    sample_preview = ", ".join(str(value) for value in sample_values[:3])
-                    sample_str = f" -- samples: {sample_preview}"
 
-                score_tag = f" [sim:{col_similarity:.2f}]" if col_similarity > 0 else ""
-                line = f"  - {column_name} ({column_type}){score_tag}{sample_str}"
-
-                lowered = column_name.lower()
-                is_key_column = (
-                    lowered == "id"
-                    or lowered.startswith("id")
-                    or lowered.endswith("_id")
-                    or lowered.endswith("_kode")
-                    or lowered == "nip"
-                    or lowered.endswith("_nip")
-                )
+                row = {
+                    "schema": table_schema,
+                    "table": table_name,
+                    "column": column_name,
+                    "type": column_type,
+                    "similarity": f"{col_similarity:.2f}" if col_similarity > 0 else "",
+                    "samples": [str(value) for value in sample_values[:3]],
+                }
 
                 if col_similarity >= self._column_similarity_threshold:
-                    retrieved_columns.append((col_similarity, line))
-                elif is_key_column:
-                    key_columns.append((col_similarity, line))
+                    retrieved_columns.append((col_similarity, row))
+                elif self._is_key_column(column_name):
+                    key_columns.append((col_similarity, row))
 
             retrieved_columns.sort(key=lambda item: item[0], reverse=True)
             key_columns.sort(key=lambda item: item[0], reverse=True)
 
-            selected_data_columns = [line for _, line in retrieved_columns[:max_data_columns]]
-            selected_data_set = set(selected_data_columns)
-            selected_key_columns = [
-                line for _, line in key_columns if line not in selected_data_set
-            ][:5]
-            selected_lines = selected_data_columns + selected_key_columns
+            selected_data_columns = [
+                row for _, row in retrieved_columns[:max_data_columns]
+            ]
+            selected_column_names = {
+                str(row["column"]) for row in selected_data_columns
+            }
 
-            skipped = max(0, len(table["columns"]) - len(selected_lines))
+            selected_key_columns: list[dict[str, Any]] = []
+            for _, row in key_columns:
+                column_name = str(row["column"])
+                if column_name in selected_column_names:
+                    continue
+                selected_column_names.add(column_name)
+                selected_key_columns.append(row)
+                if len(selected_key_columns) >= 5:
+                    break
 
-            for line in selected_lines:
-                if total_chars + len(line) > self._max_context_chars:
-                    parts.append("  ... (context truncated)")
-                    return "\n".join(parts)
-                parts.append(line)
-                total_chars += len(line)
+            column_rows.extend(selected_data_columns + selected_key_columns)
 
-            if skipped > 0:
-                parts.append(f"  ... (+{skipped} columns omitted)")
+        table_block = encode_table_with_max_chars(
+            name="schema_context_tables",
+            rows=table_rows,
+            fields=_SCHEMA_TABLE_FIELDS,
+            max_chars=self._max_context_chars,
+        )
+        if table_block == TOON_NA:
+            return TOON_NA
 
-            if total_chars > self._max_context_chars:
-                break
+        remaining_chars = self._max_context_chars - len(table_block)
+        if remaining_chars <= 2:
+            return table_block
 
-        return "\n".join(parts)
+        column_block = encode_table_with_max_chars(
+            name="schema_context_columns",
+            rows=column_rows,
+            fields=_SCHEMA_COLUMN_FIELDS,
+            max_chars=remaining_chars - 2,
+        )
+        if column_block == TOON_NA:
+            return table_block
+
+        return f"{table_block}\n\n{column_block}"
