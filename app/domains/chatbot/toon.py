@@ -1,8 +1,28 @@
+import json
 from typing import Any, Mapping, Sequence
 
 from toon_format import encode as encode_toon
 
+from app.core.config import settings
+
 TOON_NA = "N/A"
+
+
+def is_toon_enabled() -> bool:
+    """Single global switch for TOON encoding across the entire chatbot
+    pipeline (ambiguity, question_rewriting, semantic_memory, sql_generator).
+    Controlled by the env var ``CHATBOT_USE_TOON`` (default ``true``).
+    When False, all encoders fall back to compact JSON so the impact of TOON
+    vs JSON formatting can be measured end-to-end.
+    """
+    return bool(getattr(settings, "CHATBOT_USE_TOON", True))
+
+
+def current_format_label() -> str:
+    """Human-readable label of the currently active encoding for use in
+    prompt headers (e.g. ``[context (format=TOON)]``).
+    """
+    return "TOON" if is_toon_enabled() else "JSON"
 
 
 def _normalize_scalar(value: Any) -> str:
@@ -44,6 +64,18 @@ def _normalize_row(
     return normalized_row
 
 
+def _encode_json_table(
+    name: str,
+    normalized_rows: Sequence[Mapping[str, Any]],
+) -> str:
+    """JSON fallback when TOON is disabled. Uses a compact structure that
+    mirrors the TOON shape so prompts remain readable: a single object with
+    the table name as key and the list of rows as value.
+    """
+    payload = {name: list(normalized_rows)}
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
 def encode_table(
     name: str,
     rows: Sequence[Mapping[str, Any]],
@@ -65,6 +97,10 @@ def encode_table(
         )
         for row in rows
     ]
+
+    if not is_toon_enabled():
+        encoded = _encode_json_table(name=name, normalized_rows=normalized_rows)
+        return encoded if encoded else TOON_NA
 
     encoded = encode_toon(
         {name: normalized_rows},

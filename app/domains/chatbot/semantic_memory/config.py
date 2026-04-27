@@ -26,6 +26,10 @@ DEFAULT_ALLOWED_TABLES: dict[str, list[str]] = {
         "T_RIWAYAT_MUTASI",
         "V_PENDIDIKAN_TERAKHIR",
     ],
+    "mantel": [
+        "period_employees",
+        "periods",
+    ],
 }
 
 

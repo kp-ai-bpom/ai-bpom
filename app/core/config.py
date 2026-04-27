@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     )
     CHATBOT_ALLOWED_TABLES_JSON: str = os.getenv(
         "CHATBOT_ALLOWED_TABLES_JSON",
-        '{"public":["propinsi_tm","kabupaten_tm","kecamatan_tm","pangkat_tm","tipepegawai_tm","eselon_tm","pegawai_tm","disabilitas_tm","riwayatjabatan_th","SIAP_SATKER_TOP","jabatan_tm","sk_pegawai_v"],"siap":["R_FUNGSI","T_RIWAYAT_MUTASI","V_PENDIDIKAN_TERAKHIR"]}',
+        '{"public":["propinsi_tm","kabupaten_tm","kecamatan_tm","pangkat_tm","tipepegawai_tm","eselon_tm","pegawai_tm","disabilitas_tm","riwayatjabatan_th","SIAP_SATKER_TOP","jabatan_tm","sk_pegawai_v"],"siap":["R_FUNGSI","T_RIWAYAT_MUTASI","V_PENDIDIKAN_TERAKHIR"],"mantel":["period_employees","periods"]}',
     )
 
     # Chatbot Question Rewriting Configuration
@@ -90,6 +90,83 @@ class Settings(BaseSettings):
     )
     CHATBOT_REWRITE_SOURCE: str = os.getenv(
         "CHATBOT_REWRITE_SOURCE", "chatbot_api"
+    )
+
+    # Chatbot Ambiguity Handling Configuration
+    CHATBOT_AMBIGUITY_ENABLED: bool = (
+        os.getenv("CHATBOT_AMBIGUITY_ENABLED", "true").lower() == "true"
+    )
+    CHATBOT_AMBIGUITY_DETECTION_MAX_TOKENS: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_DETECTION_MAX_TOKENS", "1024")
+    )
+    CHATBOT_AMBIGUITY_REFINE_MAX_TOKENS: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_REFINE_MAX_TOKENS", "512")
+    )
+    CHATBOT_AMBIGUITY_TEMPERATURE: float = float(
+        os.getenv("CHATBOT_AMBIGUITY_TEMPERATURE", "0.1")
+    )
+    CHATBOT_AMBIGUITY_TIMEOUT_SECONDS: float = float(
+        os.getenv("CHATBOT_AMBIGUITY_TIMEOUT_SECONDS", "10")
+    )
+    CHATBOT_AMBIGUITY_RATE_LIMIT_RETRIES: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_RATE_LIMIT_RETRIES", "3")
+    )
+    CHATBOT_AMBIGUITY_SESSION_TTL_SECONDS: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_SESSION_TTL_SECONDS", "300")
+    )
+    CHATBOT_AMBIGUITY_AUTO_RESOLVE_WINDOW: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_AUTO_RESOLVE_WINDOW", "3")
+    )
+    CHATBOT_AMBIGUITY_MAX_HISTORY_TURNS: int = int(
+        os.getenv("CHATBOT_AMBIGUITY_MAX_HISTORY_TURNS", "3")
+    )
+    CHATBOT_USE_TOON: bool = (
+        os.getenv("CHATBOT_USE_TOON", "true").lower() == "true"
+    )
+    CHATBOT_PROCEDURAL_ENABLED: bool = (
+        os.getenv("CHATBOT_PROCEDURAL_ENABLED", "true").lower() == "true"
+    )
+    CHATBOT_PROCEDURAL_SIMILARITY_THRESHOLD: float = float(
+        os.getenv("CHATBOT_PROCEDURAL_SIMILARITY_THRESHOLD", "0.85")
+    )
+    CHATBOT_PROCEDURAL_TTL_DAYS: int = int(
+        os.getenv("CHATBOT_PROCEDURAL_TTL_DAYS", "90")
+    )
+    CHATBOT_PROCEDURAL_RESET_KEYWORDS: str = os.getenv(
+        "CHATBOT_PROCEDURAL_RESET_KEYWORDS",
+        "reset preferensi,lupakan preferensi,lupakan aturan,hapus preferensi",
+    )
+
+    # Chatbot SQL Validation Pipeline Configuration (Tahap 5)
+    # CHATBOT_VALIDATION_LEVEL: "full" (default; execution + semantic),
+    # "execution_only" (lewati judge), atau "none" (matikan total — perilaku
+    # legacy persis seperti sebelum Tahap 5).
+    CHATBOT_VALIDATION_LEVEL: str = os.getenv("CHATBOT_VALIDATION_LEVEL", "full")
+    CHATBOT_VALIDATION_MAX_EXECUTION_ITERATIONS: int = int(
+        os.getenv("CHATBOT_VALIDATION_MAX_EXECUTION_ITERATIONS", "3")
+    )
+    # CHATBOT_VALIDATION_MAX_SEMANTIC_ITERATIONS: di bawah kebijakan PARTIAL
+    # fixed-flow saat ini (judge#1 → revise → re-execute → judge#2 wajib),
+    # nilai variabel ini berfungsi sebagai sakelar boolean: 0 = nonaktifkan
+    # loop semantik (judge tidak dipanggil sama sekali), >= 1 = aktifkan satu
+    # putaran lengkap revise+rejudge. Nilai > 1 saat ini setara dengan 1.
+    CHATBOT_VALIDATION_MAX_SEMANTIC_ITERATIONS: int = int(
+        os.getenv("CHATBOT_VALIDATION_MAX_SEMANTIC_ITERATIONS", "1")
+    )
+    CHATBOT_VALIDATION_TIMEOUT_SECONDS: float = float(
+        os.getenv("CHATBOT_VALIDATION_TIMEOUT_SECONDS", "30")
+    )
+    CHATBOT_VALIDATION_TRIVIAL_SKIP: bool = (
+        os.getenv("CHATBOT_VALIDATION_TRIVIAL_SKIP", "true").lower() == "true"
+    )
+    CHATBOT_VALIDATION_REFINER_MAX_TOKENS: int = int(
+        os.getenv("CHATBOT_VALIDATION_REFINER_MAX_TOKENS", "2048")
+    )
+    CHATBOT_VALIDATION_JUDGE_MAX_TOKENS: int = int(
+        os.getenv("CHATBOT_VALIDATION_JUDGE_MAX_TOKENS", "1536")
+    )
+    CHATBOT_VALIDATION_EXECUTION_TIMEOUT_MS: int = int(
+        os.getenv("CHATBOT_VALIDATION_EXECUTION_TIMEOUT_MS", "5000")
     )
 
     @field_validator("POSTGRES_URI", mode="before")

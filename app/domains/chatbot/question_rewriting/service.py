@@ -147,6 +147,17 @@ class QuestionRewritingService:
         with self._working_lock:
             return list(self._working_memory_by_session.get(key, []))
 
+    def get_session_memory_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        max_turns: int | None = None,
+    ) -> list[dict[str, Any]]:
+        history = self._get_session_memory(user_id=user_id, session_id=session_id)
+        if max_turns is None or max_turns <= 0:
+            return history
+        return history[-max_turns:]
+
     def _format_conversation_text(self, user_id: str, session_id: str) -> str:
         session_memory = self._get_session_memory(user_id, session_id)
         if not session_memory:

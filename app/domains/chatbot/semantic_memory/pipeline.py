@@ -1,5 +1,6 @@
 import csv
 import re
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -8,11 +9,18 @@ from app.core.llm import LLMAdapter
 
 from ..repositories import ChatbotRepository
 from ..sql_generator import SQLGenerator, get_sql_generator_config
+from ..sql_validation import (
+    SQLValidationService,
+    ValidationResult,
+    ValidationStatus,
+    get_sql_validation_config,
+)
+from ..sql_validation.types import RubricDimensionVerdict, ValidationRevision
 from .config import SemanticMemoryConfig
 from .context_builder import ContextBuilder
 from .keyword_extractor import KeywordExtractor
 from .table_retriever import TableRetriever
-from .types import PipelineResult, RetrievedTable
+from .types import PipelineResult, PreparedSchemaContext, RetrievedTable
 
 
 _COLUMN_ALIAS_STOPWORDS = {
@@ -198,14 +206,23 @@ class SemanticMemoryPipeline:
             allowed_tables=config.allowed_tables,
             config=sql_generator_config,
         )
+        self._sql_validation_config = get_sql_validation_config()
+        self._sql_validation_service = SQLValidationService(
+            llm_adapter=llm_adapter,
+            repository=repository,
+            config=self._sql_validation_config,
+        )
 
-    async def run(self, query: str) -> PipelineResult:
+    async def prepare_context(self, query: str) -> PreparedSchemaContext:
         schema_tables = await self._repository.load_schema(self._config.allowed_tables)
         if not schema_tables:
             raise RuntimeError("No schema loaded from database")
 
         keywords = await self._keyword_extractor.extract(query)
-        predicted_tables = await self._table_retriever.retrieve(keywords)
+        predicted_tables = await self._table_retriever.retrieve(
+            keywords=keywords,
+            raw_query=query,
+        )
         if not predicted_tables:
             predicted_tables = self._fallback_tables(
                 keywords=keywords,
@@ -239,6 +256,22 @@ class SemanticMemoryPipeline:
             table_descriptions=table_descriptions,
         )
 
+        return PreparedSchemaContext(
+            keywords=keywords,
+            predicted_tables=predicted_tables,
+            context=context,
+            schema_tables=schema_tables,
+        )
+
+    async def run_from_prepared(
+        self,
+        query: str,
+        prepared: PreparedSchemaContext,
+        skip_validation: bool = False,
+    ) -> PipelineResult:
+        context = prepared.context
+        schema_tables = prepared.schema_tables
+
         sql, explanation = await self._sql_generator.generate(query, context)
         if not sql:
             raise RuntimeError(explanation or "Failed to generate SQL")
@@ -251,24 +284,423 @@ class SemanticMemoryPipeline:
         if validation_error:
             raise RuntimeError(f"Generated SQL is invalid: {validation_error}")
 
-        rows, execution_error = await self._repository.execute_sql(
+        # PRE-INJECT: pasang filter default pegawai aktif sebelum SQL
+        # dikirim ke validation pipeline. Tanpa ini, judge menilai SQL
+        # versi pra-inject dan memberi label ``where=FAIL`` walaupun
+        # boundary inject di akhir pipeline akan menambahkan filter.
+        # Akibatnya ``validation_status`` ter-surface ke client sebagai
+        # ``FAIL`` padahal SQL final yang dieksekusi sudah benar. Pre-inject
+        # di sini menjamin judge dan client melihat SQL yang konsisten.
+        sql = self._apply_pegawai_filter_safety_inject(
             sql=sql,
+            user_query=query,
+        )
+
+        # Tahap 5: SQL Validation Pipeline (refiner + judge). Service ini
+        # mengembalikan ``ValidationResult`` dengan label diskrit dan, bila
+        # perlu, SQL revisi. Eksekusi final tetap di pipeline ini.
+        validation_result = await self._sql_validation_service.validate(
+            question=query,
+            schema_context=context,
+            candidate_sql=sql,
+            skip_validation=skip_validation,
+        )
+
+        # Tahap 5b: post-processing deterministik untuk FAIL pada dimensi
+        # ``where`` yang murni soal "filter default pegawai aktif tidak
+        # dipasang". Lihat ``_apply_default_active_filter_repair`` untuk
+        # rasional lengkap (termasuk false-positive judge pada tabel
+        # ``mantel.period_employees`` yang tidak punya kolom status_pegawai/
+        # kedudukan_pegawai). Bila kondisi tidak terpenuhi, hasil validasi
+        # dikembalikan apa adanya tanpa modifikasi.
+        validation_result = self._apply_default_active_filter_repair(
+            validation_result=validation_result,
+            user_query=query,
+        )
+
+        validation_payload = self._build_validation_payload(validation_result)
+
+        # Belt-and-suspenders fail-safe di boundary pipeline.
+        #
+        # Walau ``SQLGenerator.generate`` sudah memiliki fail-safe
+        # ``_inject_default_pegawai_filters`` di akhir loop retry, kita
+        # ulangi mekanisme yang sama di sini sebagai jaring pengaman
+        # terakhir. Alasannya:
+        #
+        # 1. Refiner (SQL Validation Pipeline / Tahap 5) bisa menghasilkan
+        #    SQL revisi yang justru menghapus filter default pegawai aktif
+        #    karena fokus refiner adalah memperbaiki dimensi rubric yang
+        #    bermasalah dan tidak selalu mempertahankan klausa WHERE.
+        # 2. Bila pipeline mengembalikan SQL pada jalur safety-net (FAIL/
+        #    PARTIAL), kita tetap ingin SQL yang ditampilkan ke
+        #    pengguna/operator memenuhi kontrak filter default sehingga
+        #    audit trail dan transparansi konsisten dengan kebijakan
+        #    bahasa-Indonesia "pegawai aktif by default".
+        # 3. Kontrak inject bersifat idempotent: kalau filter sudah ada
+        #    SQL tidak diubah; kalau user eksplisit minta non-aktif kita
+        #    skip inject.
+        candidate_final_sql = validation_result.final_sql or sql
+        candidate_final_sql = self._apply_pegawai_filter_safety_inject(
+            sql=candidate_final_sql,
+            user_query=query,
+        )
+
+        # Bila validation FAIL atau PARTIAL → safety-net: jangan eksekusi SQL.
+        # `is_safe_to_execute` hanya True untuk PASS/SKIPPED, sehingga PARTIAL
+        # juga otomatis ikut safety-net. Status final tetap dipertahankan apa
+        # adanya pada metadata API agar pengguna/operator tahu alasan persis
+        # SQL tidak dijalankan.
+        if not validation_result.is_safe_to_execute:
+            return PipelineResult(
+                keywords=prepared.keywords,
+                predicted_tables=prepared.predicted_tables,
+                context=context,
+                sql=candidate_final_sql,
+                explanation=(
+                    f"{explanation} | Validasi SQL "
+                    f"{validation_result.status.value.lower()}: "
+                    f"{validation_result.explanation}"
+                ),
+                executed=False,
+                execution_error=validation_result.last_execution_error,
+                rows=None,
+                **validation_payload,
+            )
+
+        # PASS atau SKIPPED: eksekusi SQL final (yang mungkin sudah direvisi).
+        final_sql = candidate_final_sql
+
+        # Belt-and-suspenders: guard read-only/multi-statement diterapkan ulang
+        # sebelum final execute. Validation service sudah memanggil guard pada
+        # setiap revisi; pengulangan di sini memastikan SQL skenario SKIPPED
+        # (procedural hit) maupun PASS dari path manapun tetap melewati guard
+        # sebelum mencapai database.
+        final_guard_error = self._sql_generator.validate_sql_candidate(final_sql)
+        if final_guard_error:
+            return PipelineResult(
+                keywords=prepared.keywords,
+                predicted_tables=prepared.predicted_tables,
+                context=context,
+                sql=final_sql,
+                explanation=(
+                    f"{explanation} | Validasi SQL gagal: SQL final ditolak "
+                    f"safety guard ({final_guard_error})."
+                ),
+                executed=False,
+                execution_error=final_guard_error,
+                rows=None,
+                **validation_payload,
+            )
+
+        rows, execution_error = await self._repository.execute_sql(
+            sql=final_sql,
             timeout_ms=self._config.sql_timeout_ms,
         )
         executed = execution_error is None
         if execution_error:
-            explanation = f"{explanation} | SQL execution failed: {execution_error[:180]}"
+            explanation = (
+                f"{explanation} | SQL execution failed: {execution_error[:180]}"
+            )
 
         return PipelineResult(
-            keywords=keywords,
-            predicted_tables=predicted_tables,
+            keywords=prepared.keywords,
+            predicted_tables=prepared.predicted_tables,
             context=context,
-            sql=sql,
+            sql=final_sql,
             explanation=explanation,
             executed=executed,
             execution_error=execution_error,
             rows=rows,
+            **validation_payload,
         )
+
+    async def run(self, query: str) -> PipelineResult:
+        prepared = await self.prepare_context(query)
+        return await self.run_from_prepared(query=query, prepared=prepared)
+
+    def _apply_pegawai_filter_safety_inject(
+        self,
+        *,
+        sql: str,
+        user_query: str,
+    ) -> str:
+        """Pasang filter default pegawai aktif pada SQL akhir bila belum ada.
+
+        Idempotent: kalau SQL tidak menyentuh ``public.pegawai_tm`` atau
+        pengguna eksplisit minta data non-aktif, SQL dikembalikan apa adanya.
+        Kalau filter sudah lengkap, juga dikembalikan apa adanya. Kalau salah
+        satu/keduanya hilang, kita tambahkan secara mekanis menggunakan
+        helper di ``SQLGenerator`` yang menjadi sumber kebenaran.
+        """
+        if not sql:
+            return sql
+
+        try:
+            generator = self._sql_generator
+            if not generator._references_pegawai_table(sql):
+                return sql
+            if generator._user_requests_non_active(user_query):
+                return sql
+            return generator._inject_default_pegawai_filters(sql)
+        except Exception:
+            # Fail-safe: jangan pernah memutus pipeline karena bug di inject;
+            # kembalikan SQL apa adanya supaya alur utama tidak terganggu.
+            return sql
+
+    @staticmethod
+    def _references_period_employees(sql: str) -> bool:
+        """Cek apakah SQL menyentuh tabel ``mantel.period_employees``.
+
+        Tabel ini adalah snapshot per-periode pegawai aktif (sudah pre-filter
+        oleh ETL upstream) dan TIDAK memiliki kolom ``status_pegawai`` /
+        ``kedudukan_pegawai``. Aturan default active filter pada rubric judge
+        tidak applicable di sini, sehingga FAIL pada dimensi ``where`` dengan
+        alasan "filter default pegawai aktif" adalah false-positive yang
+        dapat di-override secara deterministik.
+        """
+        if not sql:
+            return False
+        return bool(
+            re.search(
+                r"\b(?:mantel\.)?\"?period_employees\"?\b",
+                sql,
+                re.IGNORECASE,
+            )
+        )
+
+    def _apply_default_active_filter_repair(
+        self,
+        *,
+        validation_result: ValidationResult,
+        user_query: str,
+    ) -> ValidationResult:
+        """Post-processing deterministik untuk FAIL pada dimensi ``where``.
+
+        Judge LLM kadang memberi label ``where=FAIL`` dengan alasan "filter
+        default pegawai aktif tidak dipasang", padahal:
+
+        (a) Untuk SQL yang menyentuh ``public.pegawai_tm``, filter dapat
+            di-injeksi secara mekanis (idempotent) tanpa memanggil LLM lagi.
+            Bila injeksi sudah no-op (mis. filter sebenarnya sudah ada di
+            subquery/CTE tetapi judge tidak melihatnya), verdict FAIL juga
+            dapat di-override karena kontrak fisik sudah dipenuhi.
+
+        (b) Untuk SQL yang HANYA menyentuh ``mantel.period_employees`` (tidak
+            menyentuh ``public.pegawai_tm`` sama sekali), aturan default
+            active filter tidak relevan: tabel ini adalah snapshot
+            per-periode pegawai aktif dan tidak memiliki kolom
+            ``status_pegawai`` / ``kedudukan_pegawai``. Verdict FAIL adalah
+            false-positive judge yang dapat di-override deterministik.
+
+        Pada kedua kasus, kita upgrade rubric (where → PASS, overall → PASS)
+        selama dimensi rubric lain semuanya PASS, lalu tambahkan satu entri
+        ``ValidationRevision`` sebagai jejak audit (trigger dimulai dengan
+        ``deterministic_active_filter_*``). Bila kondisi tidak terpenuhi,
+        ``ValidationResult`` dikembalikan apa adanya.
+
+        Catatan: helper ini sengaja tidak menggunakan LLM apa pun supaya
+        latensi pipeline tidak terdampak (Bab 3.x: deterministic safety net
+        untuk false-positive judge).
+        """
+        # 1) Hanya trigger pada FAIL — PARTIAL/PASS/SKIPPED tidak relevan.
+        if validation_result.status is not ValidationStatus.FAIL:
+            return validation_result
+
+        rubric = validation_result.rubric
+        if rubric is None:
+            return validation_result
+
+        where_verdict = rubric.dimensions.get("where")
+        if where_verdict is None or where_verdict.label is not ValidationStatus.FAIL:
+            return validation_result
+
+        # 2) Semua dimensi non-where harus PASS supaya repair aman dilakukan.
+        #    Bila ada dimensi lain yang FAIL/PARTIAL, masalah lebih luas dari
+        #    sekadar default active filter dan harus tetap masuk safety-net.
+        for name, dim in rubric.dimensions.items():
+            if name == "where":
+                continue
+            if dim.label is not ValidationStatus.PASS:
+                return validation_result
+
+        # 3) Reason judge harus menyebut "filter default pegawai aktif" agar
+        #    repair ini relevan. Bila FAIL where karena alasan lain (mis.
+        #    filter periode/jabatan keliru), jangan ditimpa.
+        reason_normalized = (where_verdict.reason or "").lower()
+        keywords = (
+            "filter default",
+            "pegawai aktif",
+            "status_pegawai",
+            "kedudukan_pegawai",
+        )
+        if not any(k in reason_normalized for k in keywords):
+            return validation_result
+
+        # 4) User eksplisit minta non-aktif → tidak ada repair (filter
+        #    memang sengaja tidak dipasang dan judge salah menilai FAIL,
+        #    tapi membiarkan FAIL lebih aman daripada menimpa silently).
+        try:
+            if self._sql_generator._user_requests_non_active(user_query):
+                return validation_result
+        except Exception:
+            return validation_result
+
+        candidate_sql = validation_result.final_sql
+        if not candidate_sql:
+            return validation_result
+
+        # 5) Tentukan strategi repair berdasarkan tabel yang disentuh SQL.
+        try:
+            references_pegawai = self._sql_generator._references_pegawai_table(
+                candidate_sql
+            )
+            references_period_employees = self._references_period_employees(
+                candidate_sql
+            )
+        except Exception:
+            return validation_result
+
+        repaired_sql = candidate_sql
+        repair_trigger: str | None = None
+        repair_feedback: str | None = None
+        new_where_reason: str | None = None
+
+        if references_pegawai:
+            # Sub-case A: SQL menyentuh pegawai_tm. Coba injeksi mekanis;
+            # bila sudah no-op berarti filter sebenarnya sudah ada (judge
+            # mungkin tidak membaca subquery), kita override saja.
+            try:
+                repaired_sql = self._sql_generator._inject_default_pegawai_filters(
+                    candidate_sql
+                )
+            except Exception:
+                return validation_result
+
+            if repaired_sql == candidate_sql:
+                repair_trigger = "deterministic_active_filter_override_pegawai"
+                repair_feedback = (
+                    "Filter default pegawai aktif sudah hadir di SQL "
+                    "(termasuk di subquery/CTE bila ada). Verdict where=FAIL "
+                    "ditimpa menjadi PASS oleh post-processing deterministik."
+                )
+                new_where_reason = (
+                    "Override deterministik: filter default pegawai aktif "
+                    "(status_pegawai + kedudukan_pegawai) sudah ada di SQL."
+                )
+            else:
+                repair_trigger = "deterministic_active_filter_inject"
+                repair_feedback = (
+                    "Post-processing deterministik menambahkan filter default "
+                    "pegawai aktif ke klausa WHERE tanpa memanggil LLM."
+                )
+                new_where_reason = (
+                    "Filter default pegawai aktif (status_pegawai + "
+                    "kedudukan_pegawai) di-inject otomatis oleh "
+                    "post-processing deterministik."
+                )
+        elif references_period_employees:
+            # Sub-case B: SQL hanya menyentuh mantel.period_employees yang
+            # tidak punya kolom status_pegawai/kedudukan_pegawai. Override
+            # FAIL menjadi PASS karena aturan tidak applicable.
+            repair_trigger = "deterministic_active_filter_override_period_employees"
+            repair_feedback = (
+                "SQL hanya menyentuh mantel.period_employees (snapshot "
+                "per-periode pegawai aktif). Aturan default active filter "
+                "tidak berlaku karena tabel ini tidak punya kolom "
+                "status_pegawai/kedudukan_pegawai."
+            )
+            new_where_reason = (
+                "Tidak berlaku: mantel.period_employees adalah snapshot "
+                "per-periode pegawai aktif (tidak ada kolom "
+                "status_pegawai/kedudukan_pegawai)."
+            )
+        else:
+            # Tidak ada tabel yang bisa di-repair → biarkan FAIL apa adanya.
+            return validation_result
+
+        # 6) Bangun ulang ValidationResult (frozen dataclass) dengan rubric
+        #    yang sudah di-upgrade dan revisi tambahan untuk audit trail.
+        new_dimensions = dict(rubric.dimensions)
+        new_dimensions["where"] = RubricDimensionVerdict(
+            label=ValidationStatus.PASS,
+            reason=new_where_reason or "Override deterministik.",
+        )
+        new_rubric = replace(
+            rubric,
+            overall=ValidationStatus.PASS,
+            dimensions=new_dimensions,
+        )
+
+        new_revision = ValidationRevision(
+            iteration=len(validation_result.revisions) + 1,
+            trigger=repair_trigger,
+            feedback=repair_feedback or "",
+            sql_before=candidate_sql,
+            sql_after=repaired_sql,
+        )
+        new_revisions = list(validation_result.revisions) + [new_revision]
+
+        existing_explanation = (validation_result.explanation or "").strip()
+        appended_note = (
+            "Repair deterministik diterapkan: dimensi where di-upgrade ke "
+            "PASS karena aturan default active filter sudah dipenuhi atau "
+            "tidak applicable pada tabel target."
+        )
+        if existing_explanation:
+            new_explanation = f"{existing_explanation} | {appended_note}"
+        else:
+            new_explanation = appended_note
+
+        return replace(
+            validation_result,
+            status=ValidationStatus.PASS,
+            final_sql=repaired_sql,
+            explanation=new_explanation,
+            rubric=new_rubric,
+            revisions=new_revisions,
+        )
+
+    def _build_validation_payload(
+        self,
+        validation_result: ValidationResult,
+    ) -> dict[str, Any]:
+        """Bentuk dict yang siap dipakai sebagai field tambahan ``PipelineResult``.
+
+        Bila status SKIPPED (mis. ``CHATBOT_VALIDATION_LEVEL=none`` atau
+        procedural-memory hit yang melewati validasi), kembalikan dict kosong
+        sehingga ``PipelineResult.validation_*`` tetap ``None`` dan respons API
+        tidak menyertakan metadata validasi sama sekali. Ini menjaga "perilaku
+        lama persis sama" yang disyaratkan untuk mode ``none``.
+        """
+        if validation_result.status is ValidationStatus.SKIPPED:
+            return {}
+
+        rubric_payload: dict[str, dict[str, str]] | None = None
+        if validation_result.rubric is not None:
+            rubric_payload = validation_result.rubric.as_payload()
+
+        revisions_payload: list[dict[str, Any]] | None = None
+        if validation_result.revisions:
+            revisions_payload = [
+                {
+                    "iteration": rev.iteration,
+                    "trigger": rev.trigger,
+                    "feedback": rev.feedback,
+                    "sql_before": rev.sql_before,
+                    "sql_after": rev.sql_after,
+                }
+                for rev in validation_result.revisions
+            ]
+
+        return {
+            "validation_status": validation_result.status.value,
+            "validation_iterations": {
+                "execution": validation_result.execution_iterations,
+                "semantic": validation_result.semantic_iterations,
+            },
+            "validation_rubric": rubric_payload,
+            "validation_revisions": revisions_payload,
+        }
 
     def _fallback_tables(
         self,

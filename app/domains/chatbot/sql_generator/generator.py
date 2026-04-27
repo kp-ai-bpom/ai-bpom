@@ -166,7 +166,9 @@ def _load_ground_truth_by_category() -> dict[str, str]:
 
 
 _PROMPT_EXAMPLES = """Examples (MUST follow this JSON format):
-{"query": "SELECT * FROM public.pegawai_tm p WHERE p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') LIMIT 10", "explanation": "Menampilkan 10 pegawai aktif pertama"}
+{"query": "SELECT p.nip, p.nama, j.jabatan_nama, s.namasatker AS unit_kerja, pk.pangkat_nama, p.status_pegawai, p.kedudukan_pegawai FROM public.pegawai_tm p LEFT JOIN public.jabatan_tm j ON p.jabatan_id = j.jabatan_id LEFT JOIN public.\"SIAP_SATKER_TOP\" s ON p.satker_top_id = s.satker_id LEFT JOIN public.pangkat_tm pk ON p.pangkat_id = pk.pangkat_id WHERE p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') LIMIT 10", "explanation": "Menampilkan 10 pegawai aktif dengan kolom ringkas untuk laporan: NIP, nama, jabatan, unit kerja, pangkat, status"}
+
+{"query": "SELECT pe.nip, pe.full_name AS nama, pe.position_name AS jabatan, pe.work_unit_top_name AS unit_kerja, pe.work_unit_name AS sub_unit_kerja, pe.grade_name AS pangkat, pe.pool, pe.cluster, pe.performance_level, pe.competency_level, pe.period_date FROM mantel.period_employees pe JOIN (SELECT MAX(period_date) AS latest_period FROM mantel.period_employees) sub ON pe.period_date = sub.latest_period WHERE pe.pool = 1 ORDER BY pe.full_name", "explanation": "Menampilkan pegawai pada talent pool 1 untuk periode terbaru dengan kolom ringkas: NIP, nama, jabatan, unit kerja induk, sub unit kerja, pangkat, pool, cluster, level kinerja & kompetensi"}
 
 {"query": "SELECT DISTINCT ON (p.pegawai_id) p.nama, j.jabatan_nama, vpt.namasekolah, vpt.programstudi FROM public.pegawai_tm p JOIN public.jabatan_tm j ON p.jabatan_id = j.jabatan_id JOIN siap.\"V_PENDIDIKAN_TERAKHIR\" vpt ON vpt.pegawaiid = p.pegawai_id WHERE lower(trim(vpt.namasekolah)) = lower(trim('Universitas Komputer Indonesia')) AND (lower(j.jabatan_nama) LIKE '%ahli komputer%' OR lower(j.jabatan_nama) LIKE '%pranata komputer%') AND p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') ORDER BY p.pegawai_id, vpt.ranking ASC NULLS LAST", "explanation": "Menampilkan satu baris per pegawai ahli/pranata komputer lulusan Universitas Komputer Indonesia tanpa duplikasi karena perbedaan huruf besar-kecil"}
 
@@ -376,6 +378,16 @@ class SQLGenerator:
         if not has_recap_intent:
             return None
 
+        # Ground truth pada CSV semuanya berbentuk cross-tab "per tipe unit kerja"
+        # (lihat _GROUND_TRUTH_EXPLANATIONS). Jika user TIDAK menyebut unit kerja
+        # secara eksplisit (mis. "Rekap jumlah pegawai aktif per status pegawai"),
+        # memaksa shape cross-tab tipe_unit_kerja akan menjawab pertanyaan yang
+        # berbeda dari yang ditanya. Lewati ground truth dan biarkan LLM membuat
+        # rekap satu dimensi (GROUP BY pada dimensi yang user minta).
+        has_unit_scope = self._contains_any(normalized_query, _UNIT_WORK_HINTS)
+        if not has_unit_scope:
+            return None
+
         category: str | None = None
         for candidate, matchers in _GROUND_TRUTH_CATEGORY_MATCHERS:
             if all(matcher in normalized_query for matcher in matchers):
@@ -488,17 +500,109 @@ class SQLGenerator:
         return None
 
     def _normalize_known_column_aliases(self, sql: str) -> str:
-        normalized_sql = self._normalize_literal(sql)
-        if "v_pendidikan_terakhir" not in normalized_sql:
-            return sql
-        if ".jurusan" not in normalized_sql:
-            return sql
+        rewritten = sql
 
-        return re.sub(
+        # Halusinasi kolom nama_lengkap / nama_lengkap_gelar pada pegawai_tm —
+        # tabel pegawai_tm hanya punya kolom `nama`. Rewrite mekanis tanpa
+        # bergantung pada referensi tabel agar idempotent.
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)nama_lengkap_gelar\b",
+            r"\1nama",
+            rewritten,
+        )
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)nama_lengkap\b",
+            r"\1nama",
+            rewritten,
+        )
+
+        # Hilangkan AS dengan nama-nama tersebut karena rewrite di atas bisa
+        # menyebabkan duplikasi alias seperti `p.nama AS nama_lengkap`.
+        # Itu masih valid SQL, jadi tidak perlu ditangani lebih lanjut.
+
+        # vpt.jurusan → vpt.programstudi (kolom yang benar di V_PENDIDIKAN_TERAKHIR).
+        rewritten = re.sub(
             r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)jurusan\b",
             r"\1programstudi",
-            sql,
+            rewritten,
         )
+
+        return rewritten
+
+    def _detect_pegawai_alias(self, sql: str) -> str:
+        """Deteksi alias yang dipakai untuk public.pegawai_tm; default 'p'."""
+        match = re.search(
+            r"public\.pegawai_tm\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+            sql,
+            re.IGNORECASE,
+        )
+        if match:
+            alias = match.group(1).strip()
+            # 'WHERE' / 'JOIN' / 'ON' bukan alias yang valid (mis. SQL tanpa alias).
+            if alias.lower() not in {"where", "join", "on", "left", "right", "inner", "outer", "group", "order", "limit", "having"}:
+                return alias
+        return "p"
+
+    def _inject_default_pegawai_filters(self, sql: str) -> str:
+        """Inject mekanis filter default pegawai aktif sebagai fail-safe.
+
+        Idempotent: kalau kedua filter sudah ada, return apa adanya.
+        Menambahkan AND ke klausa WHERE existing, atau membuat WHERE baru
+        sebelum klausa GROUP BY / ORDER BY / LIMIT / HAVING.
+        """
+        needs_status = not self._has_required_in_filter(
+            sql=sql,
+            column_name="status_pegawai",
+            required_values=_DEFAULT_STATUS_FILTER_VALUES,
+        )
+        needs_kedudukan = not self._has_required_in_filter(
+            sql=sql,
+            column_name="kedudukan_pegawai",
+            required_values=_DEFAULT_KEDUDUKAN_FILTER_VALUES,
+        )
+        if not (needs_status or needs_kedudukan):
+            return sql
+
+        alias = self._detect_pegawai_alias(sql)
+        additions: list[str] = []
+        if needs_status:
+            additions.append(
+                f"{alias}.status_pegawai IN ('CPNS','PNS','POLRI','PPPK')"
+            )
+        if needs_kedudukan:
+            additions.append(
+                f"{alias}.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN')"
+            )
+        addition_clause = " AND ".join(additions)
+
+        clause_terminator = re.compile(
+            r"\b(GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|UNION|EXCEPT|INTERSECT|"
+            r"FETCH\s+FIRST|OFFSET)\b",
+            re.IGNORECASE,
+        )
+
+        where_match = re.search(r"\bWHERE\b", sql, re.IGNORECASE)
+        if where_match:
+            tail = sql[where_match.end():]
+            term_match = clause_terminator.search(tail)
+            if term_match:
+                insert_pos = where_match.end() + term_match.start()
+                return (
+                    sql[:insert_pos].rstrip()
+                    + " AND " + addition_clause + " "
+                    + sql[insert_pos:]
+                )
+            return sql.rstrip() + " AND " + addition_clause
+
+        term_match = clause_terminator.search(sql)
+        if term_match:
+            insert_pos = term_match.start()
+            return (
+                sql[:insert_pos].rstrip()
+                + " WHERE " + addition_clause + " "
+                + sql[insert_pos:]
+            )
+        return sql.rstrip() + " WHERE " + addition_clause
 
     def _validate_role_intent_filters(self, sql: str, user_query: str) -> str | None:
         normalized_query = self._normalize_literal(user_query)
@@ -591,6 +695,11 @@ class SQLGenerator:
 
         feedback: str | None = None
         last_reason = "kesalahan tidak diketahui"
+        # SQL terakhir yang lulus syntax+default-filter tapi gagal di
+        # validator hilir (recap_shape/role_intent), atau lulus syntax
+        # tapi gagal default-filter — dipakai untuk fail-safe injection.
+        last_filter_failing_sql: str | None = None
+        last_filter_failing_explanation: str = ""
 
         for _ in range(self._retries + 1):
             prompt = self._build_prompt(query=query, context=context, feedback=feedback)
@@ -638,6 +747,13 @@ class SQLGenerator:
             if default_filter_error:
                 last_reason = default_filter_error
                 feedback = default_filter_error
+                # Simpan SQL ini sebagai kandidat fail-safe — kalau retry
+                # berikutnya tetap gagal, kita inject filter mekanis.
+                last_filter_failing_sql = sql_candidate
+                last_filter_failing_explanation = (
+                    explanation
+                    or "SQL diperbaiki dengan injeksi filter default pegawai aktif"
+                )
                 continue
 
             recap_shape_error = self._validate_expected_recap_shape(
@@ -661,6 +777,30 @@ class SQLGenerator:
             if not explanation:
                 explanation = "SQL dibuat dari konteks skema yang tersedia"
             return sql_candidate, explanation
+
+        # Fail-safe mekanis: kalau retry habis hanya karena filter default
+        # pegawai aktif tidak terpasang, inject filter secara mekanis dan
+        # validasi ulang. Ini mencegah ketergantungan pada compliance LLM
+        # untuk query agregasi/GROUP BY yang panjang.
+        if last_filter_failing_sql is not None:
+            injected_sql = self._inject_default_pegawai_filters(
+                last_filter_failing_sql
+            )
+            re_default = self._validate_default_pegawai_filters(
+                sql=injected_sql,
+                user_query=query,
+            )
+            re_syntax = self.validate_sql_candidate(injected_sql)
+            re_recap = self._validate_expected_recap_shape(
+                sql=injected_sql,
+                user_query=query,
+            )
+            re_role = self._validate_role_intent_filters(
+                sql=injected_sql,
+                user_query=query,
+            )
+            if re_default is None and re_syntax is None and re_recap is None and re_role is None:
+                return injected_sql, last_filter_failing_explanation
 
         fallback = self._build_intent_fallback(query)
         if fallback is not None:
@@ -712,13 +852,48 @@ Jika suatu block berisi N/A, artinya data untuk block tersebut tidak tersedia.
 10. Field explanation wajib bahasa Indonesia sederhana dan ringkas yang menjelaskan maksud SQL.
 11. Gunakan key query, BUKAN key sql.
 12. Contoh ground_truth_query boleh berakhiran titik koma, tetapi output akhir field query tidak boleh berakhiran titik koma.
-13. Jika query menyentuh public.pegawai_tm dan pengguna TIDAK secara eksplisit meminta data non-aktif, WAJIB tambahkan filter default:
-    - status_pegawai IN ('CPNS', 'PNS', 'POLRI', 'PPPK')
-    - kedudukan_pegawai IN ('Aktif', 'Tugas Belajar', 'CLTN')
+13. **ATURAN PALING PENTING — FILTER DEFAULT PEGAWAI AKTIF (mengalahkan semua aturan lain):** Jika klausa FROM atau JOIN menyentuh `public.pegawai_tm` dan pengguna TIDAK secara eksplisit meminta data non-aktif (mis. "termasuk non aktif", "semua status", "pensiun", "berhenti"), maka klausa WHERE WAJIB memuat KEDUA baris berikut, persis seperti ini, ditambahkan dengan AND di samping filter lain:
+    - p.status_pegawai IN ('CPNS', 'PNS', 'POLRI', 'PPPK')
+    - p.kedudukan_pegawai IN ('Aktif', 'Tugas Belajar', 'CLTN')
+    Aturan ini BERLAKU UNIVERSAL — termasuk untuk SELECT-list dengan COUNT/SUM/agregasi, query ber-GROUP BY, query yang sudah memfilter atau mengelompokkan berdasarkan status_pegawai/kedudukan_pegawai, dan query rekap CASE WHEN. Pengelompokan "per status_pegawai" TIDAK menggantikan filter status_pegawai default (kedua hal berbeda: GROUP BY menentukan dimensi tampil, WHERE menentukan populasi). Bila pengguna menulis "pegawai aktif" sebagai phrase di pertanyaan, ITU TIDAK menghapus aturan ini — justru memperkuatnya.
+    ANTI-PATTERN yang HARAM (auto-fail): SQL menyentuh `FROM public.pegawai_tm` tanpa kedua filter di atas, atau hanya memuat satu dari dua filter, atau memakai `WHERE p.status_pegawai = 'PNS'` saja (ini bukan filter default — ini filter spesifik). Bila Anda menerima feedback "Tambahkan filter default pegawai aktif", JANGAN reformat ulang SQL — cukup tambahkan kedua baris filter ke klausa WHERE pada SQL terakhir Anda.
+
+    PENEMPATAN FILTER (PENTING — hindari kesalahan struktural):
+    - Kedua filter (`status_pegawai` DAN `kedudukan_pegawai`) WAJIB berada **di scope yang sama** — yaitu **sama-sama di outer WHERE**, atau **sama-sama di subquery/CTE WHERE** yang menyentuh `pegawai_tm`. JANGAN memisah kedua filter ke scope yang berbeda.
+    - Bila `pegawai_tm` dibungkus **subquery/CTE** (mis. `FROM (SELECT ... FROM pegawai_tm WHERE ...) p`), maka KEDUA filter WAJIB berada di **WHERE subquery itu**, bukan di JOIN ON outer.
+    - DILARANG menempatkan filter default di klausa **JOIN ... ON ... AND p.status_pegawai IN (...)** dari outer query yang merujuk alias subquery, karena alias subquery sering tidak meng-expose kolom yang difilter (SQL akan error column-not-found atau memberi hasil salah).
+    - ANTI-PATTERN konkret yang sering muncul (HARAM):
+        ```
+        FROM ( SELECT p.pegawai_id, ... FROM pegawai_tm p
+               WHERE p.kedudukan_pegawai IN ('Aktif',...)  -- hanya satu filter di subquery
+             ) p
+        JOIN "SIAP_SATKER_TOP" s ON p.satker_top_id = s.satker_id
+                                AND p.status_pegawai IN ('CPNS',...)  -- filter kedua nyangkut di JOIN ON
+        ```
+      PERBAIKAN: pindahkan KEDUA filter ke WHERE subquery, dan pastikan subquery meng-SELECT kolom yang dibutuhkan outer (atau lebih baik: outer query tidak perlu mereferensi `status_pegawai` karena sudah difilter di dalam).
 14. Aturan default filter pegawai di atas memiliki prioritas lebih tinggi daripada contoh historis mana pun.
 15. Untuk rekap pendidikan per tipe unit kerja, gunakan satu baris per tipe_unit_kerja dengan bucket agregat pendidikan (unset, under_d3, d3, d4_s1, profesi, s2, s3), bukan grouping per pendidikan_top_id.
 16. Saat query daftar pegawai melakukan JOIN ke siap."V_PENDIDIKAN_TERAKHIR", cegah duplikasi dengan memilih satu baris per pegawai (gunakan DISTINCT ON (p.pegawai_id) atau ROW_NUMBER). Jika memfilter nama sekolah/program studi, gunakan perbandingan case-insensitive ter-normalisasi, misalnya lower(trim(vpt.namasekolah)) = lower(trim('...')).
 17. JANGAN gunakan sintaks PostgreSQL yang tidak valid: COUNT(DISTINCT ON (...)). Untuk menghitung jumlah unik per pegawai, gunakan COUNT(DISTINCT p.pegawai_id) atau COUNT(*) dari subquery yang sudah dedupe (misalnya SELECT DISTINCT ON (p.pegawai_id) ...).
+18. DEFAULT KOLOM RAMAH-EKSEKUTIF: untuk query yang menampilkan daftar baris (bukan agregasi/COUNT), DILARANG menggunakan SELECT * atau SELECT alias.*. Pilih hanya kolom yang berarti bagi pembaca non-teknis (atasan/manajemen).
+    a. PRIORITASKAN kolom display: NIP, nama lengkap (nama / full_name), nama jabatan, nama unit kerja / satker, nama pangkat / grade_name, status_pegawai, kedudukan_pegawai, tipe_pegawai, pendidikan terakhir, tanggal lahir / pensiun jika relevan dengan pertanyaan, dan kolom domain yang ditanya (mis. pool, cluster, performance_level, competency_level untuk talent management).
+    b. HINDARI kolom teknis kecuali pengguna meminta secara eksplisit: id (PK numerik internal), uuid, semua kolom *_id yang berfungsi sebagai foreign key (pegawai_id, jabatan_id, satker_id, pangkat_id, employee_id, satker_top_id, pendidikan_top_id, dst), kolom embedding/vector, kolom audit (created_at, updated_at, created_by, updated_by), dan kolom JSON/JSONB mentah yang berisi history/log (mis. position_history, grade_history, history_technical_training, history_managerial_training).
+    c. Kalau tabel sumber pakai penamaan bahasa Inggris (mis. mantel.period_employees: full_name, position_name, work_unit_top_name, work_unit_name, grade_name), beri ALIAS bahasa Indonesia agar header hasil mudah dibaca atasan: full_name AS nama, position_name AS jabatan, work_unit_top_name AS unit_kerja, work_unit_name AS sub_unit_kerja, grade_name AS pangkat.
+    d. Untuk JOIN, ambil kolom display dari tabel master (mis. j.jabatan_nama, s.namasatker, pk.pangkat_nama) — bukan FK numerik dari tabel utama.
+    e. KONVENSI nama kolom mantel.period_employees:
+       - work_unit_top_name = NAMA UNIT KERJA INDUK / TOP-LEVEL satker (mis. "Balai Besar POM di Bandung", "Direktorat Pengawasan Keamanan Pangan"). Inilah yang dimaksud pengguna saat menyebut "unit kerja", "satker", atau menyebut nama unit kerja BPOM.
+       - work_unit_name = SUB-unit di bawahnya (mis. seksi/bidang). JANGAN pakai work_unit_name untuk filter saat pengguna menyebut nama unit kerja induk/satker — query tidak akan ketemu.
+       - position_top_name = JABATAN INDUK; position_name = sub-jabatan. Logika sama: untuk filter nama jabatan utama, pakai position_top_name.
+       - grade_top_name = PANGKAT INDUK; grade_name = sub-pangkat.
+       Default: untuk DISPLAY, tampilkan kolom *_top_name sebagai kolom utama (alias unit_kerja, jabatan, pangkat) dan kolom non-top sebagai kolom sekunder (alias sub_unit_kerja, sub_jabatan, sub_pangkat) jika relevan.
+       Default: untuk FILTER WHERE berdasarkan nama unit kerja/jabatan/pangkat yang disebut pengguna, gunakan kolom *_top_name (case-insensitive: lower(trim(pe.work_unit_top_name)) = lower(trim('...'))).
+    f. Untuk pertanyaan yang menanyakan data pegawai dari mantel.period_employees, default kolom yang ditampilkan: nip, full_name AS nama, position_name AS jabatan, work_unit_top_name AS unit_kerja, work_unit_name AS sub_unit_kerja, grade_name AS pangkat, period_date, plus kolom domain yang relevan (pool, cluster, performance_level, competency_level).
+    g. Pengecualian: kalau pengguna eksplisit minta "semua kolom", "lengkap", "termasuk ID", "raw", "detail teknis", atau menyebut kolom teknis spesifik (mis. "tampilkan UUID"), baru boleh include kolom teknis sesuai permintaan.
+19. **INTERPRETASI ENTITAS — JABATAN vs JURUSAN/PROGRAM STUDI**: Frasa berpola `"ahli <X>"`, `"pranata <X>"`, `"analis <X>"`, `"penyelia <X>"`, `"pengawas <X>"`, `"penyuluh <X>"`, `"penyidik <X>"`, `"pemeriksa <X>"`, `"perencana <X>"`, `"arsiparis"`, `"pustakawan"` adalah **NAMA JABATAN FUNGSIONAL** — filter WAJIB di kolom `j.jabatan_nama` dari tabel `public.jabatan_tm` (atau `pe.position_name` / `pe.position_top_name` di mantel.period_employees), BUKAN di kolom `vpt.programstudi`, `vpt.jurusan`, atau `vpt.namasekolah`.
+    - Contoh KORREK untuk "ahli komputer": `lower(j.jabatan_nama) LIKE '%ahli komputer%' OR lower(j.jabatan_nama) LIKE '%pranata komputer%'`. Kata "komputer" di sini adalah bagian nama jabatan, BUKAN jurusan studi.
+    - ANTI-PATTERN (HARAM): memfilter `lower(vpt.programstudi) LIKE '%komputer%'` atau `lower(vpt.jurusan) LIKE '%komputer%'` untuk frasa "ahli komputer". Itu salah interpretasi domain.
+    - Hanya bila pengguna eksplisit menyebut kata kunci jurusan/lulusan/program studi (mis. "lulusan jurusan komputer", "program studi farmasi", "jurusan teknik informatika"), filter dilakukan di `vpt.programstudi` atau `vpt.jurusan`.
+    - Variasi penulisan dengan kapitalisasi atau spasi berlebih (mis. "AHLI KOMPUTER", "ahli  komputer") TIDAK mengubah interpretasi — tetap jabatan.
 
 # Examples
 {_PROMPT_EXAMPLES}

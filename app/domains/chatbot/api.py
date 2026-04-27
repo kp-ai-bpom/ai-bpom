@@ -136,13 +136,27 @@ async def import_base_knowledge_csv(
 @router.post(
     "/chat",
     response_model=SendMessageResponse,
-    responses={400: {"model": ChatErrorResponse}, 500: {"model": ChatErrorResponse}},
+    responses={
+        400: {"model": ChatErrorResponse},
+        500: {"model": ChatErrorResponse},
+    },
 )
 async def send_message(
     request: SendMessageRequest,
     service: ChatbotService = Depends(get_chatbot_pipeline_service),
 ):
-    """Endpoint untuk mengirim pesan dan menghasilkan query SQL."""
+    """Endpoint untuk mengirim pesan dan menghasilkan query SQL.
+
+    Request body (selalu sama, 3 field):
+        { "user_id": str, "session_id": str | null, "message": str }
+
+    Response body discriminated by `data.type`:
+        - `type="answer"`     → query/explanation berisi SQL final, options=[]
+        - `type="clarification"` → options=[{id, label}], query="" & explanation=""
+
+    Backend auto-detects intent berdasarkan ada/tidaknya pending clarification
+    untuk session_id terkait — frontend tidak perlu mengirim flag eksplisit.
+    """
     try:
         result = await service.send_message(
             user_id=request.user_id,

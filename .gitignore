@@ -23,5 +23,5 @@ reports/
 *settings.local.json
 
 data/
-scripts/
+tests/
 docs
