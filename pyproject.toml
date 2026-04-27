@@ -18,6 +18,16 @@ dependencies = [
     "strands-agents-builder>=0.1.10",
     "tiktoken>=0.12.0",
     "toon-format>=0.9.0b1",
+    "lightrag-hku[api]>=1.4.15",
+    "boto3>=1.42.59",
+    "pdfplumber>=0.11.9",
+    "asyncpg>=0.31.0",
+    "pgvector>=0.4.2",
+    "neo4j>=6.1.0",
+    "raganything>=1.2.10",
+    "nest-asyncio>=1.6.0",
+    "streamlit>=1.56.0",
+    "psycopg2>=2.9.12",
 ]
 
 [dependency-groups]
