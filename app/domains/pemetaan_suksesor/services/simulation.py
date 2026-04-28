@@ -167,7 +167,7 @@ class SimulationService:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num and 1 <= box_num <= 9:
-                nama = c.get("kandidat_suksesi", {}).get("nama", "")
+                nama = c.get("nama", "")
                 if nama:
                     box_candidates[box_num].append(nama)
 
@@ -195,7 +195,7 @@ class SimulationService:
     def get_kandidat_by_boxes(boxes: List[int]) -> KandidatListResponse:
         """
         Mengembalikan kandidat yang berada di box-box terpilih,
-        lengkap dengan ringkasan untuk kartu UI.
+        lengkap dengan ringkasan untuk kartu UI (format SIASN).
         """
         candidates = _load_candidates()
 
@@ -211,50 +211,31 @@ class SimulationService:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num in valid_boxes:
-                profil = c.get("kandidat_suksesi", {})
-
-                rekam_jejak = [
-                    RekamJejakItem(
-                        periode=r.get("periode", ""),
-                        jabatan=r.get("jabatan", ""),
-                        durasi_tahun=r.get("durasi_tahun", 0),
-                        deskripsi_tugas_dan_fungsi=r.get(
-                            "deskripsi_tugas_dan_fungsi", ""
-                        ),
-                    )
-                    for r in c.get("rekam_jejak", [])
-                ]
-
-                sertifikasi = [
-                    SertifikasiItem(
-                        nama_sertifikasi=s.get("nama_sertifikasi", ""),
-                        tahun=s.get("tahun", 0),
-                        keterangan=s.get("keterangan", ""),
-                    )
-                    for s in c.get("sertifikasi", [])
-                ]
-
-                skp_raw = c.get("skp", {})
-                skp = {
-                    k: SkpTahunItem(
-                        rating_hasil_kerja=v.get("rating_hasil_kerja", ""),
-                        rating_perilaku_kerja=v.get("rating_perilaku_kerja", ""),
-                        keterangan=v.get("keterangan", ""),
-                    )
-                    for k, v in skp_raw.items()
-                }
-
                 filtered.append(
                     KandidatCard(
-                        id=profil.get("id", ""),
-                        nama=profil.get("nama", ""),
-                        jabatan_saat_ini=profil.get("jabatan_saat_ini", ""),
-                        unit_kerja=profil.get("unit_kerja", ""),
-                        box_number=box_num,
-                        rekam_jejak=rekam_jejak,
-                        sertifikasi=sertifikasi,
-                        skp=skp,
+                        nip=c.get("nip", ""),
+                        nama=c.get("nama", ""),
+                        nama_lengkap=c.get("nama_lengkap", ""),
+                        jabatan_nama=c.get("jabatan_nama", ""),
+                        jabatan_terakhir=c.get("jabatan_terakhir", ""),
+                        fungsi_jabatan=c.get("fungsi_jabatan", []),
+                        riwayat_jabatan=c.get("riwayat_jabatan", []),
+                        riwayat_pendidikan=c.get("riwayat_pendidikan", []),
+                        nilai_potensi=c.get("nilai_potensi"),
+                        nilai_mansoskul=c.get("nilai_mansoskul"),
+                        nilai_kinerja=c.get("nilai_kinerja"),
+                        nilai_kinerja_label=c.get("nilai_kinerja_label"),
+                        masa_kerja=c.get("masa_kerja"),
+                        diklat_pim_level=c.get("diklat_pim_level"),
+                        pengalaman_struktural_tahun=c.get("pengalaman_struktural_tahun"),
+                        current_eselon_id=c.get("current_eselon_id"),
+                        target_eselon_id=c.get("target_eselon_id"),
+                        recommendation_label=c.get("recommendation_label"),
+                        recommendation_type=c.get("recommendation_type"),
+                        is_eligible=c.get("is_eligible"),
+                        rhk=c.get("rhk", []),
                         posisi_nine_box_talenta=posisi,
+                        box_number=box_num,
                     )
                 )
 
