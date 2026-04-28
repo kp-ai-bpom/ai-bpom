@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from app.core.logger import log
 
 from ..core.agent import AgentAdapter, init_agents
-from ..dto.request import KandidatSuksesi
+from ..dto.request import KandidatSIASN
 from ..dto.response import (
     DetailEvaluasi,
     KandidatCard,
@@ -17,11 +17,8 @@ from ..dto.response import (
     NineBoxData,
     NineBoxItem,
     NineBoxResponse,
-    RekamJejakItem,
-    SertifikasiItem,
     SimulasiDataResponse,
     SimulasiResponse,
-    SkpTahunItem,
 )
 from ..core.config import settings as local_settings
 from .helpers import _extract_json, _load_candidates, _parse_box_number, _run_agent_async
@@ -60,7 +57,7 @@ class SimulationService:
     async def run(
         self,
         target_jabatan: str,
-        kandidat_list: List[KandidatSuksesi],
+        kandidat_list: List[KandidatSIASN],
         top_n: int = 5,
     ) -> SimulasiResponse:
         """
@@ -99,9 +96,9 @@ class SimulationService:
         for a in self._agents.analysis_pool:
             agent_queue.put_nowait(a)
 
-        async def _eval_one(kandidat: KandidatSuksesi) -> Dict:
-            kandidat_id = kandidat.kandidat_suksesi.id
-            kandidat_nama = kandidat.kandidat_suksesi.nama
+        async def _eval_one(kandidat: KandidatSIASN) -> Dict:
+            kandidat_id = kandidat.nip
+            kandidat_nama = kandidat.nama
             agent = await agent_queue.get()
             try:
                 log.info(
@@ -111,7 +108,7 @@ class SimulationService:
                     kandidat, target_jabatan, sub_tasks, agent=agent
                 )
                 evaluation.setdefault(
-                    "jabatan_saat_ini", kandidat.kandidat_suksesi.jabatan_saat_ini
+                    "jabatan_saat_ini", kandidat.jabatan_nama
                 )
                 log.info(f"✅ [paralel] {kandidat_nama} ({kandidat_id}) selesai")
                 return evaluation
@@ -408,7 +405,7 @@ class SimulationService:
 
     async def _evaluate_candidate(
         self,
-        kandidat: KandidatSuksesi,
+        kandidat: KandidatSIASN,
         target_jabatan: str,
         sub_tasks: List[Dict],
         agent: Any = None,
@@ -459,14 +456,14 @@ class SimulationService:
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
-            parsed.setdefault("id_kandidat", kandidat.kandidat_suksesi.id)
-            parsed.setdefault("nama", kandidat.kandidat_suksesi.nama)
+            parsed.setdefault("id_kandidat", kandidat.nip)
+            parsed.setdefault("nama", kandidat.nama)
             return parsed
 
-        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.kandidat_suksesi.id}")
+        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.nip}")
         return {
-            "id_kandidat": kandidat.kandidat_suksesi.id,
-            "nama": kandidat.kandidat_suksesi.nama,
+            "id_kandidat": kandidat.nip,
+            "nama": kandidat.nama,
             "l_eval": {"keputusan": "REJECT", "alasan": "Gagal memproses evaluasi"},
             "c_eval": {
                 "keputusan": "REJECT",
