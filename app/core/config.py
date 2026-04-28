@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     CHATBOT_REWRITE_SOURCE: str = os.getenv(
         "CHATBOT_REWRITE_SOURCE", "chatbot_api"
     )
+    # LightRAG Configuration
+    # ── 1. Konfigurasi Database Standalone ───────────────────────────────────────
+    PG_HOST: str = os.getenv("POSTGRES_HOST", "127.0.0.1")
+    PG_PORT: str = os.getenv("POSTGRES_PORT", "5432")
+    PG_DB: str = os.getenv("POSTGRES_DATABASE", "lightrag")
+    PG_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    PG_PASS: str = os.getenv("POSTGRES_PASSWORD", "")
 
     @field_validator("POSTGRES_URI", mode="before")
     @classmethod

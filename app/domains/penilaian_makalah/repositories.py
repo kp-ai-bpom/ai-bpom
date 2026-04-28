@@ -1,6 +1,8 @@
 import os
 import logging
 from typing import List, Optional
+from neo4j import AsyncSession
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import EvaluationResult
 
@@ -89,10 +91,10 @@ class MinioRepository:
 
 
 class EvaluationRepository:
-    def __init__(self, db_session: Session):
+    def __init__(self, db_session: AsyncSession):
         self.db = db_session
 
-    def save_evaluation(self, paper_filename: str, jabatan: str, result_dict: dict, query_mode: str) -> EvaluationResult:
+    async def save_evaluation(self, paper_filename: str, jabatan: str, result_dict: dict, query_mode: str) -> EvaluationResult:
         if not self.db:
             log.warning("DB Session is None. Skipping save.")
             return None
@@ -117,25 +119,34 @@ class EvaluationRepository:
         self.db.commit()
         self.db.refresh(eval_record)
         return eval_record
-
-    def get_history(self, limit: int = 100) -> List[EvaluationResult]:
-        if not self.db: return []
-        return self.db.query(EvaluationResult).order_by(EvaluationResult.created_at.desc()).limit(limit).all()
+    
+    async def get_history(self, limit: int):
+        stmt = (
+            select(EvaluationResult)
+            .order_by(EvaluationResult.created_at.desc())
+            .limit(limit)
+        )
+    
+        result = await self.db.execute(stmt)
+    
+        return result.scalars().all()
 
 class IngestionRepository:
-    def __init__(self, db_session: Session):
+    def __init__(self, db_session: AsyncSession):
         self.db = db_session
 
-    def is_ingested(self, filename: str) -> bool:
+    async def is_ingested(self, filename: str) -> bool:
         if not self.db: return False
         # Import IngestionLog locally to avoid circular import if models is loaded weirdly, or just import at top.
         from .models import IngestionLog
-        log_entry = self.db.query(IngestionLog).filter(IngestionLog.filename == filename, IngestionLog.status == "success").first()
+        log_entry = await self.db.execute(
+            select(IngestionLog).filter(IngestionLog.filename == filename, IngestionLog.status == "success").first()
+        )
         return log_entry is not None
 
-    def log_ingestion(self, filename: str, status: str, error_message: str = None):
+    async def log_ingestion(self, filename: str, status: str, error_message: str = None):
         if not self.db: return
         from .models import IngestionLog
         log_entry = IngestionLog(filename=filename, status=status, error_message=error_message)
         self.db.add(log_entry)
-        self.db.commit()
+        await self.db.commit()

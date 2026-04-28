@@ -5,31 +5,20 @@ from sqlalchemy.orm import sessionmaker, Session
 import os
 import threading
 import asyncio
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.db.database import get_db
+from app.core.config import Settings
+
+settings = Settings()
+
 
 from .schemas import PenilaianRequest, PenilaianResponse, IngestResponse
 from .services import PenilaianService
 from .repositories import MinioRepository, EvaluationRepository, IngestionRepository
 
-# ── 1. Konfigurasi Database Standalone ───────────────────────────────────────
-PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
-PG_PORT = os.getenv("POSTGRES_PORT", "5432")
-PG_DB = os.getenv("POSTGRES_DATABASE", "lightrag")
-PG_USER = os.getenv("POSTGRES_USER", "postgres")
-PG_PASS = os.getenv("POSTGRES_PASSWORD", "")
-
-SQLALCHEMY_DATABASE_URL = f"postgresql://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}"
+SQLALCHEMY_DATABASE_URL = f"postgresql://{settings.PG_USER}:{settings.PG_PASS}@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DB}"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # ── 2. Konfigurasi LightRAG Standalone ───────────────────────────────────────
@@ -93,7 +82,6 @@ async def get_rag():
 
 
 # ── 3. API Router & Endpoints ────────────────────────────────────────────────
-# Prefix dihapus dari sini karena akan di-mount oleh router aggregator utama
 router = APIRouter()
 
 def get_penilaian_service(db: Session = Depends(get_db), rag = Depends(get_rag)) -> PenilaianService:
@@ -146,9 +134,11 @@ async def evaluate_makalah(request: PenilaianRequest, service: PenilaianService 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
-async def get_history(limit: int = 100, service: PenilaianService = Depends(get_penilaian_service)):
-    """Mengambil riwayat penilaian dari database PostgreSQL"""
-    history = service.db_repo.get_history(limit=limit)
+async def get_history(
+    limit: int = 100,
+    service: PenilaianService = Depends(get_penilaian_service)
+):
+    history = await service.db_repo.get_history(limit=limit)
     return history
 
 @router.post("/upload/{kategori}")
