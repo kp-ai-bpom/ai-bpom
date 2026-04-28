@@ -124,43 +124,32 @@ class NineBoxResponse(BaseModel):
     data: NineBoxData
 
 
-class RekamJejakItem(BaseModel):
-    """Satu entri rekam jejak jabatan kandidat."""
-
-    periode: str
-    jabatan: str
-    durasi_tahun: int
-    deskripsi_tugas_dan_fungsi: str
-
-
-class SertifikasiItem(BaseModel):
-    """Satu entri sertifikasi kandidat."""
-
-    nama_sertifikasi: str
-    tahun: int
-    keterangan: str
-
-
-class SkpTahunItem(BaseModel):
-    """Data SKP satu tahun."""
-
-    rating_hasil_kerja: str
-    rating_perilaku_kerja: str
-    keterangan: str
-
-
 class KandidatCard(BaseModel):
-    """Data kandidat untuk daftar pilihan di Step 3."""
+    """Data kandidat SIASN untuk daftar pilihan di Step 3."""
 
-    id: str
+    nip: str
     nama: str
-    jabatan_saat_ini: str
-    unit_kerja: str
+    nama_lengkap: str
+    jabatan_nama: str
+    jabatan_terakhir: str
+    fungsi_jabatan: List[str] = []
+    riwayat_jabatan: List[str] = []
+    riwayat_pendidikan: List[str] = []
+    nilai_potensi: Optional[float] = None
+    nilai_mansoskul: Optional[int] = None
+    nilai_kinerja: Optional[float] = None
+    nilai_kinerja_label: Optional[str] = None
+    masa_kerja: Optional[int] = None
+    diklat_pim_level: Optional[str] = None
+    pengalaman_struktural_tahun: Optional[str] = None
+    current_eselon_id: Optional[str] = None
+    target_eselon_id: Optional[str] = None
+    recommendation_label: Optional[str] = None
+    recommendation_type: Optional[str] = None
+    is_eligible: Optional[bool] = None
+    rhk: List[str] = []
+    posisi_nine_box_talenta: Optional[str] = None
     box_number: int
-    rekam_jejak: List[RekamJejakItem]
-    sertifikasi: List[SertifikasiItem]
-    skp: Dict[str, SkpTahunItem]
-    posisi_nine_box_talenta: str
 
 
 class KandidatListData(BaseModel):
