@@ -42,61 +42,40 @@ class SuksesorListRequest(BaseModel):
     is_active: Optional[bool] = Field(None, description="Filter by active status")
 
 
-# ── Simulation Request Schemas ──────────────────────────────────
+# ── SIASN Candidate Schema ────────────────────────────────────────
 
 
-class KandidatProfil(BaseModel):
-    """Profil kandidat suksesi."""
+class KandidatSIASN(BaseModel):
+    """Data kandidat dalam format SIASN (Sistem Informasi Aparatur Sipil Negara)."""
 
-    id: str = Field(..., description="ID Kandidat, e.g. KANDIDAT-001")
-    nama: str = Field(..., description="Nama lengkap kandidat")
-    jabatan_saat_ini: str = Field(..., description="Jabatan saat ini")
-    unit_kerja: str = Field(..., description="Unit kerja saat ini")
+    nip: str = Field(..., description="NIP pegawai")
+    nama: str = Field(..., description="Nama singkat pegawai")
+    nama_lengkap: str = Field(..., description="Nama lengkap dengan gelar")
+    jabatan_nama: str = Field(..., description="Nama jabatan saat ini")
+    foto_url: Optional[str] = Field(None, description="URL foto pegawai")
+    pool: Optional[int] = Field(None, description="Nomor pool")
+    pool_id: Optional[int] = Field(None, description="ID pool")
+    fungsi_jabatan: List[str] = Field(default_factory=list, description="Daftar fungsi jabatan")
+    riwayat_jabatan: List[str] = Field(default_factory=list, description="Daftar riwayat jabatan")
+    jabatan_terakhir: str = Field(..., description="Jabatan terakhir")
+    riwayat_pendidikan: List[str] = Field(default_factory=list, description="Daftar riwayat pendidikan")
+    nilai_potensi: Optional[float] = Field(None, description="Nilai potensi")
+    nilai_mansoskul: Optional[int] = Field(None, description="Nilai manajemen sosial kultural")
+    nilai_kinerja: Optional[float] = Field(None, description="Nilai kinerja")
+    nilai_kinerja_label: Optional[str] = Field(None, description="Label nilai kinerja")
+    masa_kerja: Optional[int] = Field(None, description="Masa kerja dalam tahun")
+    masa_kerja_total_tahun: Optional[int] = Field(None, description="Total masa kerja dalam tahun")
+    diklat_pim_level: Optional[str] = Field(None, description="Level diklat kepemimpinan")
+    jenjang_pendidikan_id: Optional[str] = Field(None, description="ID jenjang pendidikan")
+    pengalaman_struktural_tahun: Optional[str] = Field(None, description="Pengalaman struktural dalam tahun")
+    current_eselon_id: Optional[str] = Field(None, description="ID eselon saat ini")
+    target_eselon_id: Optional[str] = Field(None, description="ID eselon target")
+    recommendation_label: Optional[str] = Field(None, description="Label rekomendasi")
+    recommendation_type: Optional[str] = Field(None, description="Tipe rekomendasi")
+    is_eligible: Optional[bool] = Field(None, description="Status eligible")
+    rhk: List[str] = Field(default_factory=list, description="Daftar Rencana Hasil Kerja")
 
-
-class RekamJejakEntry(BaseModel):
-    """Satu entri rekam jejak karir."""
-
-    periode: str = Field(..., description="Periode, e.g. 2022 - 2026")
-    jabatan: str = Field(..., description="Nama jabatan")
-    durasi_tahun: int = Field(..., description="Durasi dalam tahun")
-    deskripsi_tugas_dan_fungsi: str = Field(
-        ..., description="Deskripsi tugas dan fungsi"
-    )
-
-
-class SertifikasiEntry(BaseModel):
-    """Satu entri sertifikasi."""
-
-    nama_sertifikasi: str = Field(..., description="Nama sertifikasi atau diklat")
-    tahun: int = Field(..., description="Tahun perolehan")
-    keterangan: str = Field(..., description="Keterangan tambahan")
-
-
-class SKPTahun(BaseModel):
-    """Penilaian SKP satu tahun."""
-
-    rating_hasil_kerja: str = Field(
-        ..., description="Rating hasil kerja, e.g. Di Atas Ekspektasi"
-    )
-    rating_perilaku_kerja: str = Field(..., description="Rating perilaku kerja")
-    keterangan: str = Field(..., description="Catatan penilaian")
-
-
-class KandidatSuksesi(BaseModel):
-    """Data lengkap satu kandidat suksesi — sesuai format input.json."""
-
-    kandidat_suksesi: KandidatProfil
-    rekam_jejak: List[RekamJejakEntry]
-    sertifikasi: List[SertifikasiEntry]
-    skp: Dict[str, SKPTahun] = Field(..., description="Key = tahun, value = SKP")
-    posisi_nine_box_talenta: Optional[str] = Field(
-        None,
-        description="Posisi nine-box, e.g. Kotak 9",
-        alias="posisi_nine_box_talenta",
-    )
-
-    model_config = {"populate_by_name": True}
+    model_config = {"from_attributes": True}
 
 
 class SimulasiRequest(BaseModel):
@@ -105,8 +84,8 @@ class SimulasiRequest(BaseModel):
     target_jabatan: str = Field(
         ..., description="Jabatan target suksesi, e.g. Inspektur I"
     )
-    kandidat: List[KandidatSuksesi] = Field(
-        ..., min_length=1, max_length=50, description="Daftar kandidat"
+    kandidat: List[KandidatSIASN] = Field(
+        ..., min_length=1, max_length=50, description="Daftar kandidat SIASN"
     )
 
 
