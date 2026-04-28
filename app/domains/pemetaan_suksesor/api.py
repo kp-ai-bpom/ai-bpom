@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 
 from .dto.request import (
-    KandidatSuksesi,
+    KandidatSIASN,
     SaveMatchingRequest,
     SimulasiRequest,
     SuksesorCreateRequest,
@@ -246,7 +246,7 @@ async def simulasi_pemetaan_suksesor_sampel(
 ) -> SimulasiResponse:
     """Run simulation using built-in sample candidate data (10 candidates)."""
     raw_candidates = _load_candidates()
-    kandidat_list = [KandidatSuksesi.model_validate(c) for c in raw_candidates]
+    kandidat_list = [KandidatSIASN.model_validate(c) for c in raw_candidates]
 
     return await service.run(
         target_jabatan=target_jabatan,
