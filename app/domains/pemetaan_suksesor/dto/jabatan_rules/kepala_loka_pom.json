@@ -1,0 +1,46 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Loka POM",
+    "atasan_langsung": "Kepala Badan Pengawas Obat dan Makanan",
+    "tugas": "melaksanakan tugas teknis operasional di bidang pengawasan Obat dan Makanan pada wilayah kerja masing-masing sesuai dengan ketentuan peraturan perundang-undangan.",
+    "fungsi": [
+      "penyusunan rencana, program, dan anggaran di bidang pengawasan Obat dan Makanan",
+      "pelaksanaan pemeriksaan fasilitas produksi Obat dan Makanan",
+      "pelaksanaan pemeriksaan fasilitas distribusi Obat dan Makanan dan fasilitas pelayanan kefarmasian",
+      "pelaksanaan sertifikasi produk dan fasilitas produksi dan distribusi Obat dan Makanan",
+      "pelaksanaan sampling Obat dan Makanan",
+      "pelaksanaan pemantauan label dan iklan Obat dan Makanan",
+      "pelaksanaan pengujian rutin Obat dan Makanan",
+      "pelaksanaan pengujian Obat dan Makanan dalam rangka investigasi dan penyidikan",
+      "pelaksanaan cegah tangkal, intelijen dan penyidikan terhadap pelanggaran ketentuan peraturan perundangundangan di bidang pengawasan Obat dan Makanan",
+      "pelaksanaan pemantauan peredaran Obat dan Makanan melalui siber",
+      "pengelolaan komunikasi, informasi, edukasi, dan pengaduan masyarakat di bidang pengawasan Obat dan Makanan",
+      "pelaksanaan kerja sama di bidang pengawasan Obat dan Makanan",
+      "pelaksanaan pemantauan, evaluasi, dan pelaporan di bidang pengawasan Obat dan Makanan",
+      "pelaksanaan urusan tata usaha dan rumah tangga",
+      "pelaksanaan fungsi lain yang diberikan oleh Kepala Badan"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Penata Muda Tk. I / III/b untuk jabatan Kepala Loka POM",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Diploma Tiga (D-III)",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Pelaksana atau Jabatan Fungsional Ahli Pertama paling singkat 4 (empat) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat IV",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 4 (empat) tahun",
+      "kompetensi_spesifik": []
+    }
+  }
+}

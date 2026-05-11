@@ -160,7 +160,7 @@ WAJIB output JSON dengan format:
 
     # ── Simulation Constants ────────────────────────────────────────
     MAX_CONCURRENT_EVALUATIONS: int = 5
-    JABATAN_RULES_PATH: Path = Path(__file__).resolve().parent.parent / "dto" / "jabatan_rules.json"
+    JABATAN_RULES_DIR: Path = Path(__file__).resolve().parent.parent / "dto" / "jabatan_rules"
     CANDIDATES_JSON_PATH: Path = Path(__file__).resolve().parent.parent / "dto" / "candidates.json"
 
     NINE_BOX_DEFINITIONS: Dict[int, Dict[str, Any]] = {

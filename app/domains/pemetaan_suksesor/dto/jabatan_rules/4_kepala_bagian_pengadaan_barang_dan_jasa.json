@@ -1,0 +1,33 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Bagian Pengadaan Barang dan Jasa",
+    "atasan_langsung": "Kepala Biro Umum",
+    "tugas": "Melaksanakan penyiapan koordinasi dukungan pengadaan barang/jasa",
+    "fungsi": [
+      "pelaksanaan dukungan pengadaan barang/jasa",
+      "penyiapan bahan pengelolaan pengadaan barang/jasa"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Penata Tk. I / III/d untuk jabatan Administrator",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Sarjana/Sederajat (S1/DIV)",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Pengawas (Eselon IV) atau Jabatan Fungsional Ahli Muda paling singkat 3 (tiga) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat IV",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 3 (tiga) tahun",
+      "kompetensi_spesifik": []
+    }
+  }
+}
