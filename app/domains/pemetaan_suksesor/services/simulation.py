@@ -99,13 +99,20 @@ class SimulationService:
         async def _eval_one(kandidat: KandidatSIASN) -> Dict:
             kandidat_id = kandidat.nip
             kandidat_nama = kandidat.nama
+
+            # Tahap 2: Search agent retrieves RAG context
+            search_result = await self._search_with_rag(
+                kandidat, target_jabatan, sub_tasks
+            )
+
             agent = await agent_queue.get()
             try:
                 log.info(
                     f"🔍 [paralel] Mengevaluasi {kandidat_nama} ({kandidat_id})..."
                 )
                 evaluation = await self._evaluate_candidate(
-                    kandidat, target_jabatan, sub_tasks, agent=agent
+                    kandidat, target_jabatan, sub_tasks, agent=agent,
+                    search_result=search_result,
                 )
                 evaluation.setdefault(
                     "jabatan_saat_ini", kandidat.jabatan_nama
@@ -123,7 +130,7 @@ class SimulationService:
         }
 
         log.info(
-            f"✅ Tahap 2+3 selesai — {len(evaluation_results)} kandidat dievaluasi "
+            f"✅ Tahap 2+3 selesai (RAG-enhanced) — {len(evaluation_results)} kandidat dievaluasi "
             f"(pool={len(self._agents.analysis_pool)})"
         )
 
@@ -384,6 +391,38 @@ class SimulationService:
             },
         ]
 
+    # ── Tahap 2: Search with RAG ──────────────────────────────────
+
+    async def _search_with_rag(
+        self,
+        kandidat: KandidatSIASN,
+        target_jabatan: str,
+        sub_tasks: List[Dict],
+    ) -> Dict:
+        """Search agent retrieves RAG context and extracts candidate info per sub-task."""
+        kandidat_json = kandidat.model_dump(mode="json")
+        prompt = (
+            f"Jabatan Target: {target_jabatan}\n"
+            f"Data Kandidat:\n```json\n{json.dumps(kandidat_json, ensure_ascii=False, indent=2)}\n```\n\n"
+            f"Sub-Tugas Evaluasi:\n```json\n{json.dumps(sub_tasks, ensure_ascii=False, indent=2)}\n```\n\n"
+            "Untuk setiap sub-tugas, tentukan apakah perlu konteks RAG tentang jabatan target.\n"
+            "Jika ya, gunakan tool RAG yang tepat lalu ekstrak info relevan dari data kandidat.\n"
+            "Output WAJIB JSON sesuai format di system prompt Search Agent."
+        )
+        raw = await self._run_and_track(self._agents.search, prompt)
+        parsed = _extract_json(raw)
+
+        if parsed and isinstance(parsed, dict):
+            parsed.setdefault("id_kandidat", kandidat.nip)
+            return parsed
+
+        log.warning(f"⚠️ Search agent fallback untuk {kandidat.nip}")
+        return {
+            "id_kandidat": kandidat.nip,
+            "extractions": [],
+            "rag_context": {},
+        }
+
     # ── Tahap 2+3: Evaluate single candidate ──────────────────────
 
     async def _evaluate_candidate(
@@ -392,6 +431,7 @@ class SimulationService:
         target_jabatan: str,
         sub_tasks: List[Dict],
         agent: Any = None,
+        search_result: Dict | None = None,
     ) -> Dict:
         """Search (extract) + Analysis (L-Eval + C-Eval) untuk satu kandidat."""
         eval_agent = agent or self._agents.analysis
@@ -425,13 +465,27 @@ class SimulationService:
                     f"{json.dumps(all_keywords, ensure_ascii=False)}\n"
                 )
 
+        # Include RAG context from search agent
+        rag_context = ""
+        if search_result:
+            rag_data = search_result.get("rag_context", {})
+            if rag_data.get("vector"):
+                rag_context += f"\n[Konteks VectorRAG tentang Jabatan Target]\n{rag_data['vector']}\n"
+            if rag_data.get("graph"):
+                rag_context += f"\n[Konteks GraphRAG tentang Jabatan Target]\n{rag_data['graph']}\n"
+
+            extractions = search_result.get("extractions", [])
+            if extractions:
+                rag_context += f"\n[Ekstraksi Search Agent]\n{json.dumps(extractions, ensure_ascii=False, indent=2)}\n"
+
         prompt = (
             f"Jabatan Target: {target_jabatan}\n"
             f"{context_extra}\n"
+            f"{rag_context}\n"
             f"Data Kandidat:\n```json\n{json.dumps(kandidat_json, ensure_ascii=False, indent=2)}\n```\n\n"
             f"Sub-Tugas Evaluasi:\n```json\n{json.dumps(sub_tasks, ensure_ascii=False, indent=2)}\n```\n\n"
-            "Tahap 2 — Ekstrak informasi esensial kandidat untuk setiap sub-tugas.\n"
             "Tahap 3 — Lakukan Logical Evaluation (L-Eval) dan Counterfactual Evaluation (C-Eval).\n"
+            "Gunakan konteks RAG di atas untuk memperkaya evaluasi.\n"
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Analysis Agent."
         )
 
