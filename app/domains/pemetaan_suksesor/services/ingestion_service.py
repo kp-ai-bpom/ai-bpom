@@ -1,5 +1,3 @@
-from app.core.logger import log
-
 from ..rag.graph.main import GraphRAG
 from ..rag.ingestion.minio_client import MinioClient
 from ..rag.ingestion.pipeline import run_ingestion
@@ -60,15 +58,15 @@ class IngestionService:
             logs = await repo.get_list(offset=offset, limit=limit)
             summaries = [
                 IngestLogSummary(
-                    id=l.id,
-                    filename=l.filename,
-                    content_hash=l.content_hash,
-                    status=l.status,
-                    chunk_count=l.chunk_count,
-                    entity_count=l.entity_count,
-                    ingested_at=str(l.ingested_at),
+                    id=log_entry.id,
+                    filename=log_entry.filename,
+                    content_hash=log_entry.content_hash,
+                    status=log_entry.status,
+                    chunk_count=log_entry.chunk_count,
+                    entity_count=log_entry.entity_count,
+                    ingested_at=str(log_entry.ingested_at),
                 )
-                for l in logs
+                for log_entry in logs
             ]
             return IngestLogListResponse(message="Ingestion logs", data=summaries)
 
