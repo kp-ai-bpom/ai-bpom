@@ -1,0 +1,44 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Deputi Bidang Pengawasan Pangan Olahan",
+    "atasan_langsung": "Kepala Badan Pengawas Obat dan Makanan",
+    "tugas": "Menyelenggarakan penyusunan dan pelaksanaan kebijakan di bidang pengawasan pangan olahan.",
+    "fungsi": [
+      "penyusunan kebijakan di bidang Pengawasan Sebelum Beredar dan Pengawasan Selama Beredar meliputi standardisasi, registrasi, pengawasan produksi, dan pengawasan distribusi pangan olahan",
+      "pelaksanaan kebijakan di bidang Pengawasan Sebelum Beredar dan Pengawasan Selama Beredar meliputi standardisasi, registrasi, pengawasan produksi, dan pengawasan distribusi pangan olahan",
+      "penyusunan norma, standar, prosedur, dan kriteria di bidang Pengawasan Sebelum Beredar dan Pengawasan Selama Beredar meliputi standardisasi, registrasi, pengawasan produksi, dan pengawasan distribusi pangan olahan",
+      "pemberian bimbingan teknis dan supervisi dalam rangka Pengawasan Sebelum Beredar dan Pengawasan Selama Beredar meliputi standardisasi, registrasi, pengawasan produksi dan pengawasan distribusi pangan olahan",
+      "pelaksanaan evaluasi dan pelaporan di bidang Pengawasan Sebelum Beredar dan Pengawasan Selama Beredar meliputi standardisasi, registrasi, pengawasan produksi dan pengawasan distribusi pangan olahan",
+      "Pelaksanaan fungsi lain yang diberikan oleh Kepala Badan"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "",
+    "usia_maksimal": "Usia paling tinggi 58 (lima puluh delapan) tahun 0 (nol) hari pada saat pelantikan",
+    "pangkat_golongan": "Pangkat/Golongan minimal Pembina Utama Muda (IV/c)",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki JPT Pratama (Eselon II) atau Jabatan Fungsional Ahli Utama paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Telah mengikuti/lulus Diklat Kepemimpinan Tingkat I, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi Pratama",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Memiliki pengalaman jabatan dalam bidang tugas yang terkait dengan jabatan yang akan diduduki secara kumulatif paling singkat selama 7 (tujuh) tahun",
+      "kompetensi_spesifik": [
+        "Perumusan Kebijakan dan Dokumen",
+        "Manajemen Keuangan dan Aset",
+        "Manajemen Kepegawaian",
+        "Tata Laksana Organisasi",
+        "Reformasi Birokrasi dan Pengawasan",
+        "Koordinasi Antar-Instansi"
+      ]
+    }
+  }
+}

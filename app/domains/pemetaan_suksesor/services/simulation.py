@@ -251,58 +251,60 @@ class SimulationService:
     # ── Rules Loader (hardcoded — nanti diganti Hybrid RAG) ─────────
 
     @staticmethod
-    def _load_jabatan_rules(target_jabatan: str) -> Dict | None:
+    def _load_all_jabatan_rules() -> List[Dict]:
         """
-        Load aturan jabatan dari jabatan_rules.json.
-        Mengembalikan seluruh data (deskripsi + persyaratan) jika ditemukan.
-        Nanti diganti dengan Hybrid RAG (GraphRAG + VectorRAG).
+        Load semua aturan jabatan dari folder jabatan_rules/.
+        Setiap file JSON berisi data satu jabatan (deskripsi + persyaratan).
         """
         import app.domains.pemetaan_suksesor.core.config as _c
 
-        if _c._jabatan_rules_cache is None:
+        if _c._jabatan_rules_cache is not None:
+            assert _c._jabatan_rules_cache is not None
+            return _c._jabatan_rules_cache
+
+        rules_dir = local_settings.JABATAN_RULES_DIR
+        if not rules_dir.is_dir():
+            log.warning(f"⚠️ Folder jabatan_rules tidak ditemukan: {rules_dir}")
+            _c._jabatan_rules_cache = []
+            return []
+
+        entries: List[Dict] = []
+        for json_file in sorted(rules_dir.glob("*.json")):
             try:
-                with open(local_settings.JABATAN_RULES_PATH, encoding="utf-8") as f:
-                    raw = json.load(f)
-                if "deskripsi_jabatan" in raw:
-                    _c._jabatan_rules_cache = [raw]
-                elif isinstance(raw, list):
-                    _c._jabatan_rules_cache = raw
+                with open(json_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and "deskripsi_jabatan" in data:
+                    entries.append(data)
                 else:
-                    _c._jabatan_rules_cache = []
-                log.info(
-                    f"📋 Jabatan rules loaded — {len(_c._jabatan_rules_cache)} posisi"
-                )
-            except FileNotFoundError:
-                log.warning("⚠️ jabatan_rules.json tidak ditemukan")
-                _c._jabatan_rules_cache = []
-                return None
+                    log.warning(f"⚠️ {json_file.name}: format tidak valid (tanpa deskripsi_jabatan)")
             except json.JSONDecodeError:
-                log.warning("⚠️ jabatan_rules.json format tidak valid")
-                _c._jabatan_rules_cache = []
-                return None
+                log.warning(f"⚠️ {json_file.name}: JSON tidak valid")
 
-        assert _c._jabatan_rules_cache is not None
+        _c._jabatan_rules_cache = entries
+        log.info(f"📋 Jabatan rules loaded — {len(entries)} posisi dari {rules_dir}")
+        return entries
 
+    @staticmethod
+    def _load_jabatan_rules(target_jabatan: str) -> Dict | None:
+        """
+        Cari aturan jabatan berdasarkan nama jabatan.
+        Mengembalikan seluruh data (deskripsi + persyaratan) jika ditemukan.
+        """
+        all_rules = SimulationService._load_all_jabatan_rules()
         normalized = target_jabatan.lower().strip()
-        for entry in _c._jabatan_rules_cache:
+        for entry in all_rules:
             nama = entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
             if nama.lower().strip() == normalized:
                 return entry
-
         return None
 
     @staticmethod
     def list_available_jabatan() -> List[str]:
-        """Return daftar nama jabatan yang tersedia di jabatan_rules.json."""
-        import app.domains.pemetaan_suksesor.core.config as _c
-
-        if _c._jabatan_rules_cache is None:
-            SimulationService._load_jabatan_rules("")
-
-        assert _c._jabatan_rules_cache is not None
+        """Return daftar nama jabatan yang tersedia di folder jabatan_rules."""
+        all_rules = SimulationService._load_all_jabatan_rules()
         return [
             entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
-            for entry in _c._jabatan_rules_cache
+            for entry in all_rules
             if entry.get("deskripsi_jabatan", {}).get("nama_jabatan")
         ]
 
