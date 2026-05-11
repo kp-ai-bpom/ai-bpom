@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -54,3 +54,17 @@ class MatchingHistory(Base):
 
     def __repr__(self):
         return f"<MatchingHistory(target_jabatan={self.target_jabatan})>"
+
+
+class IngestionLog(Base):
+    """Model untuk log proses ingestion dokumen RAG."""
+
+    __tablename__ = "ingestion_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    filename = Column(String(255), unique=True, nullable=False, index=True)
+    content_hash = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False)
+    chunk_count = Column(Integer, default=0)
+    entity_count = Column(Integer, default=0)
+    ingested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -1,10 +1,11 @@
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.pemetaan_suksesor.models import MatchingHistory, Suksesor
+from app.domains.pemetaan_suksesor.models import IngestionLog, MatchingHistory, Suksesor
 
 from .dto.request import (
     SaveMatchingRequest,
@@ -163,3 +164,45 @@ class MatchingHistoryRepository:
         items = list(result.scalars().all())
 
         return items, total
+
+
+class IngestionLogRepository:
+    """Repository untuk IngestionLog CRUD."""
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+
+    async def get_by_filename(self, filename: str) -> IngestionLog | None:
+        stmt = select(IngestionLog).where(IngestionLog.filename == filename)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_id(self, log_id: int) -> IngestionLog | None:
+        stmt = select(IngestionLog).where(IngestionLog.id == log_id)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_list(self, offset: int = 0, limit: int = 50) -> list[IngestionLog]:
+        stmt = select(IngestionLog).order_by(IngestionLog.ingested_at.desc()).offset(offset).limit(limit)
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def upsert(self, filename: str, content_hash: str, status: str, chunk_count: int, entity_count: int) -> IngestionLog:
+        existing = await self.get_by_filename(filename)
+        if existing:
+            existing.content_hash = content_hash
+            existing.status = status
+            existing.chunk_count = chunk_count
+            existing.entity_count = entity_count
+            existing.ingested_at = datetime.now()
+            return existing
+        else:
+            log_entry = IngestionLog(
+                filename=filename,
+                content_hash=content_hash,
+                status=status,
+                chunk_count=chunk_count,
+                entity_count=entity_count,
+            )
+            self._db.add(log_entry)
+            return log_entry

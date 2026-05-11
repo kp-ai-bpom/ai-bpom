@@ -224,3 +224,43 @@ class MatchingHistorySaveResponse(BaseModel):
 
     message: str
     data: MatchingHistoryDetail
+
+
+class IngestResult(BaseModel):
+    filename: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    content_hash: str
+    message: str | None = None
+
+
+class IngestResponse(BaseModel):
+    total_documents: int
+    results: list[IngestResult]
+
+
+class IngestLogSummary(BaseModel):
+    id: int
+    filename: str
+    content_hash: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    ingested_at: str
+
+
+class IngestLogListResponse(BaseModel):
+    message: str
+    data: list[IngestLogSummary]
+
+
+class IngestLogDetailResponse(BaseModel):
+    message: str
+    data: IngestLogSummary
+
+
+class UploadResponse(BaseModel):
+    filename: str
+    minio_path: str
+    ingest_result: IngestResult

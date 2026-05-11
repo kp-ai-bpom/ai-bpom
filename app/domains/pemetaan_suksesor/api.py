@@ -1,9 +1,10 @@
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, UploadFile, File
 
 from .dto.request import (
+    IngestRequest,
     KandidatSIASN,
     SaveMatchingRequest,
     SimulasiRequest,
@@ -11,6 +12,9 @@ from .dto.request import (
     SuksesorUpdateRequest,
 )
 from .dto.response import (
+    IngestLogDetailResponse,
+    IngestLogListResponse,
+    IngestResponse,
     KandidatListResponse,
     MatchingHistoryDetailResponse,
     MatchingHistoryListResponse,
@@ -20,6 +24,7 @@ from .dto.response import (
     SuksesorDeleteResponse,
     SuksesorListResponse,
     SuksesorResponse,
+    UploadResponse,
 )
 from .services import (
     MatchingHistoryService,
@@ -28,6 +33,7 @@ from .services import (
     get_matching_history_service,
     get_simulation_service,
     get_suksesor_service,
+    get_ingestion_service,
     _load_candidates,
 )
 
@@ -306,3 +312,50 @@ async def get_matching_history_detail(
 ) -> MatchingHistoryDetailResponse:
     """Get full detail of a matching history record by ID."""
     return await service.get_by_id(history_id)
+
+
+# ── Ingestion Endpoints ─────────────────────────────────────────────
+
+
+@router.post("/ingest", response_model=IngestResponse, summary="Trigger smart ingestion from MinIO")
+async def trigger_ingestion(request: IngestRequest):
+    """Trigger smart ingestion of documents from MinIO bucket."""
+    service = get_ingestion_service()
+    return await service.ingest(
+        document_names=request.document_names,
+        force_reingest=request.force_reingest,
+    )
+
+
+@router.get("/ingest/status", response_model=IngestLogListResponse, summary="List ingestion logs")
+async def list_ingestion_logs(offset: int = 0, limit: int = 50):
+    """List all ingestion log entries."""
+    service = get_ingestion_service()
+    return await service.list_logs(offset=offset, limit=limit)
+
+
+@router.get("/ingest/{log_id}", response_model=IngestLogDetailResponse, summary="Get ingestion log detail")
+async def get_ingestion_log(log_id: int):
+    """Get details of a specific ingestion log."""
+    from fastapi import HTTPException
+    service = get_ingestion_service()
+    result = await service.get_log(log_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Ingestion log not found")
+    return result
+
+
+@router.post("/ingest/upload", response_model=UploadResponse, summary="Upload document and auto-ingest")
+async def upload_and_ingest(file: UploadFile = File(...), force_reingest: bool = False):
+    """Upload an XLSX document to MinIO and automatically ingest it."""
+    from fastapi import HTTPException
+    if not file.filename or not file.filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only .xlsx files are accepted")
+
+    data = await file.read()
+    service = get_ingestion_service()
+    return await service.upload_and_ingest(
+        filename=file.filename,
+        data=data,
+        force_reingest=force_reingest,
+    )
