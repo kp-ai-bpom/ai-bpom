@@ -16,8 +16,31 @@ class TableRetriever:
         self._repository = repository
         self._config = config
 
-    async def retrieve(self, keywords: list[str]) -> dict[str, RetrievedTable]:
-        if not keywords:
+    async def retrieve(
+        self,
+        keywords: list[str],
+        raw_query: str | None = None,
+    ) -> dict[str, RetrievedTable]:
+        """Retrieve relevant tables via vector similarity.
+
+        Two embedding passes are performed:
+        1. One embedding per extracted keyword (precise, narrow signal).
+        2. One additional embedding of the full ``raw_query`` if provided
+           (safety net — catches semantically relevant rows even when the
+           keyword extractor misses an important term such as a column name
+           that "looks like" a value, e.g. "pool" in "pool 1"). The cost is
+           a single extra embedding call per request (~50ms) and dramatically
+           improves recall on out-of-vocabulary or ambiguous terms.
+        """
+        embedding_targets: list[str] = list(keywords)
+        if raw_query:
+            stripped_query = raw_query.strip()
+            if stripped_query and stripped_query.lower() not in {
+                kw.strip().lower() for kw in keywords
+            }:
+                embedding_targets.append(stripped_query)
+
+        if not embedding_targets:
             return {}
 
         try:
@@ -32,9 +55,9 @@ class TableRetriever:
 
         entity_map: dict[int, dict] = {}
 
-        for keyword in keywords:
+        for target in embedding_targets:
             try:
-                vector = self._llm_adapter.embeddings.embed_query(keyword)
+                vector = self._llm_adapter.embeddings.embed_query(target)
             except Exception:
                 continue
 

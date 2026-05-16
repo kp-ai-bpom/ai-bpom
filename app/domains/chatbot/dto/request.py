@@ -17,7 +17,11 @@ def _normalize_table_name(value: str | None) -> str | None:
 
 
 class SendMessageRequest(BaseModel):
-    """Schema request untuk mengirim pesan ke chatbot."""
+    """Schema request untuk mengirim pesan ke chatbot.
+    
+    Backend auto-detects: jika session punya pending clarification,
+    treat message sebagai respon klarifikasi; jika tidak, treat sebagai pertanyaan baru.
+    """
 
     user_id: str
     message: str

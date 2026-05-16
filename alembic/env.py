@@ -24,9 +24,16 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with the one from settings.
-# This env uses async_engine_from_config, so keep the async driver URL.
-config.set_main_option("sqlalchemy.url", settings.POSTGRES_URI)
+def _resolve_alembic_db_url() -> str:
+    """Alembic needs a sync SQLAlchemy URL for engine_from_config."""
+    raw_url = settings.POSTGRES_URI
+    if raw_url.startswith("postgresql+asyncpg://"):
+        return raw_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    return raw_url
+
+
+# Override sqlalchemy.url with a sync URL suitable for Alembic.
+config.set_main_option("sqlalchemy.url", _resolve_alembic_db_url())
 
 
 def run_migrations_offline() -> None:

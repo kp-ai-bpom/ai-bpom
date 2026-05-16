@@ -37,10 +37,12 @@ class KeywordExtractor:
         llm_adapter: LLMAdapter,
         allowed_tables: dict[str, list[str]],
         retries: int,
+        llm_temperature: float,
     ):
         self._llm_adapter = llm_adapter
         self._allowed_tables = allowed_tables
         self._retries = max(0, retries)
+        self._llm_temperature = llm_temperature
 
     async def extract(self, query: str) -> list[str]:
         query = query.strip()
@@ -71,6 +73,7 @@ Anda akan diberikan pertanyaan pengguna yang dapat dijawab dengan melakukan kuer
 # Scope
 Fokuslah secara eksklusif pada entitas yang merepresentasikan skema basis data seperti nama tabel, nama kolom, atau konsep yang dapat dipetakan ke struktur data.
 DILARANG KERAS berfokus pada nilai kolom spesifik (misalnya angka, nama orang, atau tanggal).
+PENGECUALIAN PENTING: Istilah teknis/asing/jarang yang TERDENGAR seperti nilai (mis. "pool", "cluster", "performance", "competency", "kuadran", "grade", "talent") WAJIB dipertahankan sebagai keyword karena kemungkinan besar adalah nama kolom atau konsep skema, BUKAN nilai data — meskipun diikuti oleh angka. Pisahkan istilah dari angka yang menyertai (mis. "pool 1" → keyword "pool", angka "1" dibuang).
 
 # Skema Tersedia
 {schema_context}
@@ -80,7 +83,8 @@ DILARANG KERAS berfokus pada nilai kolom spesifik (misalnya angka, nama orang, a
 2. Ekstrak kata kunci (keywords) berupa istilah inti.
 3. Ekstrak frasa kunci (keyphrases) berupa konsep penting.
 4. Pastikan kata kunci berkaitan dengan struktur skema (tabel/kolom).
-5. Batasi output antara 5-10 kata kunci/frasa kunci yang paling relevan.
+5. Bila pengguna menulis pola "<kata> <angka>" (mis. "pool 1", "cluster 2", "grade 4"), ekstrak hanya bagian katanya — angka adalah nilai data, bukan keyword.
+6. Batasi output antara 5-10 kata kunci/frasa kunci yang paling relevan.
 
 # Examples
 ## Contoh 1
@@ -91,11 +95,19 @@ DILARANG KERAS berfokus pada nilai kolom spesifik (misalnya angka, nama orang, a
 [question]: "Berapa jumlah pegawai yang akan pensiun tahun 2026?"
 [output]: ["pegawai", "jumlah", "pensiun", "tahun", "tgl_pensiun"]
 
+## Contoh 3
+[question]: "Carikan pegawai yang ada di pool 1"
+[output]: ["pegawai", "pool", "talent pool", "talent management"]
+
+## Contoh 4
+[question]: "Pegawai dengan cluster 2 dan grade tertinggi"
+[output]: ["pegawai", "cluster", "talent cluster", "grade", "pangkat"]
+
 # Task Input
 [question]: {query}
 
 # Refocus
-Identifikasi kata kunci dan frasa kunci yang dapat membantu pemilihan tabel dan kolom dalam basis data.
+Identifikasi kata kunci dan frasa kunci yang dapat membantu pemilihan tabel dan kolom dalam basis data. Ingat: istilah teknis/asing seperti "pool", "cluster", "performance" SELALU dipertahankan walau diikuti angka.
 
 # Transition
 Keluarkan output sebagai JSON array SAJA, tanpa teks lain.
@@ -104,7 +116,10 @@ Keluarkan output sebagai JSON array SAJA, tanpa teks lain.
 
         for _ in range(self._retries + 1):
             try:
-                response = await self._llm_adapter.think.bind(max_tokens=1200).ainvoke(
+                response = await self._llm_adapter.think.bind(
+                    max_tokens=1200,
+                    temperature=self._llm_temperature,
+                ).ainvoke(
                     [
                         {"role": "system", "content": system_prompt},
                         {
