@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 
 from app.core.logger import log
@@ -143,6 +143,7 @@ async def import_base_knowledge_csv(
 )
 async def send_message(
     request: SendMessageRequest,
+    x_eval_ablate: str | None = Header(default=None, alias="X-Eval-Ablate"),
     service: ChatbotService = Depends(get_chatbot_pipeline_service),
 ):
     """Endpoint untuk mengirim pesan dan menghasilkan query SQL.
@@ -156,12 +157,23 @@ async def send_message(
 
     Backend auto-detects intent berdasarkan ada/tidaknya pending clarification
     untuk session_id terkait — frontend tidak perlu mengirim flag eksplisit.
+
+    Header opsional ``X-Eval-Ablate`` (eval-only): CSV nama tahap yang ingin
+    dimatikan untuk benchmark ablation. Nilai dikenali:
+    ``rewriting`` (Stage 1), ``ambiguity`` (Stage 3), ``active_filter``
+    (Stage 5b). Contoh: ``X-Eval-Ablate: ambiguity,active_filter``.
     """
+    ablate_stages = frozenset(
+        token.strip().lower()
+        for token in (x_eval_ablate or "").split(",")
+        if token.strip()
+    )
     try:
         result = await service.send_message(
             user_id=request.user_id,
             message=request.message,
             session_id=request.session_id,
+            ablate_stages=ablate_stages,
         )
     except ValueError as exc:
         log.warning(

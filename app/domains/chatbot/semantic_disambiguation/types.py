@@ -35,6 +35,18 @@ class AmbiguityDetectionResult:
     clarification_question: str | None = None
     interpretation_options: list[InterpretationOption] = field(default_factory=list)
 
+    # Sinyal UQ Stage 1 (Question Contextual Rewriting Uncertainty Quantification).
+    # Diisi hanya bila path UQ aktif (``_detect_with_uq``). Untuk path legacy
+    # atau early-exit (history kosong, semua sample gagal), keempat field
+    # tetap ``None`` — konsumen wajib treat sebagai opsional.
+    #
+    # Disurfacing ke ``pipeline_trace[stage="question_rewriting"].metadata.uncertainty``
+    # untuk konsumsi UI skripsi (dropdown "Uncertainty Score = …").
+    h_norm: float | None = None
+    tau_u: float | None = None
+    m_samples: int | None = None
+    unique_clusters: int | None = None
+
 
 @dataclass(frozen=True)
 class AmbiguityResolutionResult:

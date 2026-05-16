@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from functools import lru_cache
 
-from app.core.config import settings
+from app.domains.chatbot.core.config import (
+    _resolve_stage_temperature,
+    chatbot_settings as settings,
+)
 
 from .types import ValidationLevel
 
@@ -20,6 +23,8 @@ class SQLValidationConfig:
     trivial_skip: bool
     refiner_max_tokens: int
     judge_max_tokens: int
+    refiner_llm_temperature: float
+    judge_llm_temperature: float
     execution_timeout_ms: int
 
 
@@ -37,6 +42,12 @@ def get_sql_validation_config() -> SQLValidationConfig:
         trivial_skip=settings.CHATBOT_VALIDATION_TRIVIAL_SKIP,
         refiner_max_tokens=max(512, settings.CHATBOT_VALIDATION_REFINER_MAX_TOKENS),
         judge_max_tokens=max(512, settings.CHATBOT_VALIDATION_JUDGE_MAX_TOKENS),
+        refiner_llm_temperature=_resolve_stage_temperature(
+            "CHATBOT_VALIDATION_REFINER_LLM_TEMPERATURE"
+        ),
+        judge_llm_temperature=_resolve_stage_temperature(
+            "CHATBOT_VALIDATION_JUDGE_LLM_TEMPERATURE"
+        ),
         execution_timeout_ms=max(
             500, settings.CHATBOT_VALIDATION_EXECUTION_TIMEOUT_MS
         ),

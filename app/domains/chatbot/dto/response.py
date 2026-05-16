@@ -111,12 +111,40 @@ class SendMessageResponse(BaseModel):
 
 
 class ConversationItemResponse(BaseModel):
-    """Representasi satu item percakapan dalam session."""
+    """Representasi satu item percakapan dalam session.
+
+    Field ``clarification_*`` dan ``ambiguity_type`` membawa jejak resolusi
+    ambiguitas (jika turn ini hasil klarifikasi atau auto-resolve via
+    procedural memory). UI memakainya untuk menggambar ulang badge
+    "Klarifikasi: dipilih X dari [A, B, C]" pada history setelah refresh.
+    Untuk turn biasa (tidak ambigu), keempat field bernilai default kosong
+    (``None`` / ``[]``).
+    """
 
     question: str
     query: str
     explanation: str | None = None
     pipeline_trace: Optional[List[PipelineStageEntry]] = None
+    clarification_asked: Optional[str] = None
+    clarification_options: List[ClarificationOption] = Field(default_factory=list)
+    interpretation_chosen: Optional[str] = None
+    ambiguity_type: Optional[str] = None
+
+
+class PendingClarificationResponse(BaseModel):
+    """Pending clarification yang belum di-resolve user.
+
+    Disertakan di history response supaya UI dapat me-render kembali opsi
+    jawaban setelah user refresh halaman (turn ``clarification`` tidak
+    dipersist ke ``chat_messages`` karena belum punya SQL final).
+    """
+
+    pending_id: str
+    question: str
+    clarification_question: str
+    options: List[dict]
+    ambiguity_type: str | None = None
+    expires_at: Optional[datetime] = None
 
 
 class SessionMessagesDataResponse(BaseModel):
@@ -127,6 +155,7 @@ class SessionMessagesDataResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     conversations: List[ConversationItemResponse]
+    pending_clarification: Optional[PendingClarificationResponse] = None
 
 
 class SessionMessagesResponse(BaseModel):

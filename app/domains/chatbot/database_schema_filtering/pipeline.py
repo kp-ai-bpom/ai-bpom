@@ -8,14 +8,14 @@ from typing import Any
 from app.core.llm import LLMAdapter
 
 from ..repositories import ChatbotRepository
-from ..sql_generator import SQLGenerator, get_sql_generator_config
-from ..sql_validation import (
+from ..sql_generation_and_validation import SQLGenerator, get_sql_generator_config
+from ..sql_generation_and_validation import (
     SQLValidationService,
     ValidationResult,
     ValidationStatus,
     get_sql_validation_config,
 )
-from ..sql_validation.types import RubricDimensionVerdict, ValidationRevision
+from ..sql_generation_and_validation.types import RubricDimensionVerdict, ValidationRevision
 from .config import SemanticMemoryConfig
 from .context_builder import ContextBuilder
 from .keyword_extractor import KeywordExtractor
@@ -190,6 +190,7 @@ class SemanticMemoryPipeline:
             llm_adapter=llm_adapter,
             allowed_tables=config.allowed_tables,
             retries=config.keyword_retries,
+            llm_temperature=config.llm_temperature,
         )
         self._table_retriever = TableRetriever(
             llm_adapter=llm_adapter,
@@ -268,7 +269,14 @@ class SemanticMemoryPipeline:
         query: str,
         prepared: PreparedSchemaContext,
         skip_validation: bool = False,
+        ablate_active_filter: bool = False,
     ) -> PipelineResult:
+        """Hasilkan SQL dari konteks yang sudah disiapkan.
+
+        ``ablate_active_filter`` (eval-only): bila True, semua jaring
+        deterministik untuk filter "pegawai aktif" (Stage 5b + pre-inject +
+        safety-inject di akhir) dilewati. Hanya untuk benchmark ablation.
+        """
         context = prepared.context
         schema_tables = prepared.schema_tables
 
@@ -291,10 +299,11 @@ class SemanticMemoryPipeline:
         # Akibatnya ``validation_status`` ter-surface ke client sebagai
         # ``FAIL`` padahal SQL final yang dieksekusi sudah benar. Pre-inject
         # di sini menjamin judge dan client melihat SQL yang konsisten.
-        sql = self._apply_pegawai_filter_safety_inject(
-            sql=sql,
-            user_query=query,
-        )
+        if not ablate_active_filter:
+            sql = self._apply_pegawai_filter_safety_inject(
+                sql=sql,
+                user_query=query,
+            )
 
         # Tahap 5: SQL Validation Pipeline (refiner + judge). Service ini
         # mengembalikan ``ValidationResult`` dengan label diskrit dan, bila
@@ -313,10 +322,11 @@ class SemanticMemoryPipeline:
         # ``mantel.period_employees`` yang tidak punya kolom status_pegawai/
         # kedudukan_pegawai). Bila kondisi tidak terpenuhi, hasil validasi
         # dikembalikan apa adanya tanpa modifikasi.
-        validation_result = self._apply_default_active_filter_repair(
-            validation_result=validation_result,
-            user_query=query,
-        )
+        if not ablate_active_filter:
+            validation_result = self._apply_default_active_filter_repair(
+                validation_result=validation_result,
+                user_query=query,
+            )
 
         validation_payload = self._build_validation_payload(validation_result)
 
@@ -340,10 +350,11 @@ class SemanticMemoryPipeline:
         #    SQL tidak diubah; kalau user eksplisit minta non-aktif kita
         #    skip inject.
         candidate_final_sql = validation_result.final_sql or sql
-        candidate_final_sql = self._apply_pegawai_filter_safety_inject(
-            sql=candidate_final_sql,
-            user_query=query,
-        )
+        if not ablate_active_filter:
+            candidate_final_sql = self._apply_pegawai_filter_safety_inject(
+                sql=candidate_final_sql,
+                user_query=query,
+            )
 
         # Bila validation FAIL atau PARTIAL → safety-net: jangan eksekusi SQL.
         # `is_safe_to_execute` hanya True untuk PASS/SKIPPED, sehingga PARTIAL

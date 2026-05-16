@@ -8,7 +8,7 @@ import logging
 from app.core.llm import LLMAdapter
 from app.core.logger import log as core_log
 
-from ..sql_generator.parsers import strip_thinking
+from .generator_parsers import strip_thinking
 from .config import SQLValidationConfig
 from .parsers import parse_refined_sql
 from .prompts import build_refiner_prompt, refiner_system_message
@@ -57,7 +57,8 @@ class SQLRefiner:
 
         try:
             response = await self._llm_adapter.think.bind(
-                max_tokens=self._config.refiner_max_tokens
+                max_tokens=self._config.refiner_max_tokens,
+                temperature=self._config.refiner_llm_temperature,
             ).ainvoke(
                 [
                     {"role": "system", "content": refiner_system_message()},

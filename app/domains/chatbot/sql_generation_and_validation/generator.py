@@ -8,8 +8,8 @@ from app.core.llm import LLMAdapter
 
 from ..toon import TOON_NA, encode_table
 
-from .config import SQLGeneratorConfig
-from .parsers import (
+from .generator_config import SQLGeneratorConfig
+from .generator_parsers import (
     extract_json_object,
     extract_sql_from_fence,
     extract_sql_from_text,
@@ -166,7 +166,7 @@ def _load_ground_truth_by_category() -> dict[str, str]:
 
 
 _PROMPT_EXAMPLES = """Examples (MUST follow this JSON format):
-{"query": "SELECT p.nip, p.nama, j.jabatan_nama, s.namasatker AS unit_kerja, pk.pangkat_nama, p.status_pegawai, p.kedudukan_pegawai FROM public.pegawai_tm p LEFT JOIN public.jabatan_tm j ON p.jabatan_id = j.jabatan_id LEFT JOIN public.\"SIAP_SATKER_TOP\" s ON p.satker_top_id = s.satker_id LEFT JOIN public.pangkat_tm pk ON p.pangkat_id = pk.pangkat_id WHERE p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') LIMIT 10", "explanation": "Menampilkan 10 pegawai aktif dengan kolom ringkas untuk laporan: NIP, nama, jabatan, unit kerja, pangkat, status"}
+{"query": "SELECT p.nip, p.nama, j.jabatan_nama, s.satker_nama AS unit_kerja, pk.pangkat_nama, p.status_pegawai, p.kedudukan_pegawai FROM public.pegawai_tm p LEFT JOIN public.jabatan_tm j ON p.jabatan_id = j.jabatan_id LEFT JOIN public.\"SIAP_SATKER_TOP\" s ON p.satker_top_id = s.satker_id LEFT JOIN public.pangkat_tm pk ON p.pangkat_id = pk.pangkat_id WHERE p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN') LIMIT 10", "explanation": "Menampilkan 10 pegawai aktif dengan kolom ringkas untuk laporan: NIP, nama, jabatan, unit kerja, pangkat, status"}
 
 {"query": "SELECT pe.nip, pe.full_name AS nama, pe.position_name AS jabatan, pe.work_unit_top_name AS unit_kerja, pe.work_unit_name AS sub_unit_kerja, pe.grade_name AS pangkat, pe.pool, pe.cluster, pe.performance_level, pe.competency_level, pe.period_date FROM mantel.period_employees pe JOIN (SELECT MAX(period_date) AS latest_period FROM mantel.period_employees) sub ON pe.period_date = sub.latest_period WHERE pe.pool = 1 ORDER BY pe.full_name", "explanation": "Menampilkan pegawai pada talent pool 1 untuk periode terbaru dengan kolom ringkas: NIP, nama, jabatan, unit kerja induk, sub unit kerja, pangkat, pool, cluster, level kinerja & kompetensi"}
 
@@ -186,6 +186,7 @@ class SQLGenerator:
         self._llm_adapter = llm_adapter
         self._retries = max(1, config.retries)
         self._max_tokens = max(256, config.max_tokens)
+        self._llm_temperature = config.llm_temperature
         self._allowed_tables = {
             schema_name: [table_name for table_name in table_names if table_name]
             for schema_name, table_names in allowed_tables.items()
@@ -499,7 +500,18 @@ class SQLGenerator:
 
         return None
 
+    @classmethod
+    def normalize_known_aliases(cls, sql: str) -> str:
+        """Public hook agar service.py bisa memanggil normalisasi yang sama
+        terhadap output refiner. Memanggil ``_normalize_known_column_aliases``
+        sebagai static-style (tidak butuh state instance)."""
+        return cls._normalize_known_column_aliases_impl(sql)
+
     def _normalize_known_column_aliases(self, sql: str) -> str:
+        return self._normalize_known_column_aliases_impl(sql)
+
+    @staticmethod
+    def _normalize_known_column_aliases_impl(sql: str) -> str:
         rewritten = sql
 
         # Halusinasi kolom nama_lengkap / nama_lengkap_gelar pada pegawai_tm —
@@ -524,6 +536,98 @@ class SQLGenerator:
         rewritten = re.sub(
             r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)jurusan\b",
             r"\1programstudi",
+            rewritten,
+        )
+
+        # Halusinasi NAMA TABEL satker: LLM mengikuti pola master *_tm
+        # (pegawai_tm, jabatan_tm, pangkat_tm) lalu menghasilkan
+        # `satker_tm` / `public.satker_tm`. Nama TABEL yang benar untuk
+        # data satuan kerja BPOM adalah `public."SIAP_SATKER_TOP"`
+        # (case-sensitive, butuh quote ganda). Rewrite mekanis idempotent:
+        # - `public.satker_tm` → `public."SIAP_SATKER_TOP"`
+        # - bare `satker_tm` (di FROM/JOIN) → `public."SIAP_SATKER_TOP"`
+        # Hindari mengubah jika sudah pakai SIAP_SATKER_TOP.
+        rewritten = re.sub(
+            r'(?i)\bpublic\.(?:"satker_tm"|satker_tm\b)',
+            'public."SIAP_SATKER_TOP"',
+            rewritten,
+        )
+        rewritten = re.sub(
+            r'(?i)(\b(?:from|join)\s+)(?:"satker_tm"|satker_tm\b)',
+            r'\1public."SIAP_SATKER_TOP"',
+            rewritten,
+        )
+        # Halusinasi lanjutan: refiner kadang malah men-drop suffix `_tm` atau
+        # `_top` setelah retry, menghasilkan `public.satker` / `public.pegawai`
+        # / `public.jabatan` yang juga tidak ada. Rewrite ke nama tabel asli.
+        # `public.satker` (bare, bukan `satker_tm`/`satker_top_id`/dst) →
+        # `public."SIAP_SATKER_TOP"`. Pakai negative lookahead utk `_` agar
+        # tidak match `satker_top_id`, `satker_id`, `satker_tm`, dst.
+        rewritten = re.sub(
+            r'(?i)\bpublic\.satker(?![_A-Za-z0-9])',
+            'public."SIAP_SATKER_TOP"',
+            rewritten,
+        )
+        rewritten = re.sub(
+            r'(?i)(\b(?:from|join)\s+)satker(?![_A-Za-z0-9.])',
+            r'\1public."SIAP_SATKER_TOP"',
+            rewritten,
+        )
+        # `public.pegawai` (bare) → `public.pegawai_tm`. Negative lookahead
+        # melindungi `pegawai_id`, `pegawai_tm`, `pegawai_top`, dst.
+        rewritten = re.sub(
+            r'(?i)\bpublic\.pegawai(?![_A-Za-z0-9])',
+            'public.pegawai_tm',
+            rewritten,
+        )
+        rewritten = re.sub(
+            r'(?i)(\b(?:from|join)\s+)pegawai(?![_A-Za-z0-9.])',
+            r'\1public.pegawai_tm',
+            rewritten,
+        )
+        # `public.jabatan` (bare) → `public.jabatan_tm`.
+        rewritten = re.sub(
+            r'(?i)\bpublic\.jabatan(?![_A-Za-z0-9])',
+            'public.jabatan_tm',
+            rewritten,
+        )
+        # SIAP_SATKER_TOP TANPA double-quote: PostgreSQL otomatis lowercase
+        # identifier unquoted, sehingga `public.SIAP_SATKER_TOP` dieksekusi
+        # sebagai `public.siap_satker_top` (tidak ada). Tambahkan quote.
+        # Negative lookbehind agar tidak men-quote yang sudah ada quote.
+        rewritten = re.sub(
+            r'(?i)\bpublic\.SIAP_SATKER_TOP\b(?!")',
+            'public."SIAP_SATKER_TOP"',
+            rewritten,
+        )
+        # Idempotent: kalau sudah `public."SIAP_SATKER_TOP"`, regex di atas
+        # tidak akan match karena negative lookahead `(?!")` melihat `"` setelah.
+        # Halusinasi nama kolom NAMA satker: kolom asli di SIAP_SATKER_TOP
+        # adalah ``satker_nama`` (lihat ground truth dataset_v1 +
+        # base_knowledge: "ekuivalen dengan SIAP_SATKER_TOP.satker_nama").
+        # LLM sering menghasilkan VARIASI YANG SALAH:
+        #   - ``s.nama_satker`` (urutan kata dibalik)
+        #   - ``s.namasatker``  (tanpa underscore, salah)
+        #   - ``s.nama_unit_kerja`` / ``s.nama_balai`` (frasa Indonesia)
+        # Semua → ``s.satker_nama``.
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)nama_satker\b",
+            r"\1satker_nama",
+            rewritten,
+        )
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)namasatker\b",
+            r"\1satker_nama",
+            rewritten,
+        )
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)nama_unit_kerja\b",
+            r"\1satker_nama",
+            rewritten,
+        )
+        rewritten = re.sub(
+            r"(?i)(\b[A-Za-z_][A-Za-z0-9_]*\.)nama_balai\b",
+            r"\1satker_nama",
             rewritten,
         )
 
@@ -705,7 +809,8 @@ class SQLGenerator:
             prompt = self._build_prompt(query=query, context=context, feedback=feedback)
             try:
                 response = await self._llm_adapter.deep_think.bind(
-                    max_tokens=self._max_tokens
+                    max_tokens=self._max_tokens,
+                    temperature=self._llm_temperature,
                 ).ainvoke(
                     [
                         {
@@ -879,7 +984,7 @@ Jika suatu block berisi N/A, artinya data untuk block tersebut tidak tersedia.
     a. PRIORITASKAN kolom display: NIP, nama lengkap (nama / full_name), nama jabatan, nama unit kerja / satker, nama pangkat / grade_name, status_pegawai, kedudukan_pegawai, tipe_pegawai, pendidikan terakhir, tanggal lahir / pensiun jika relevan dengan pertanyaan, dan kolom domain yang ditanya (mis. pool, cluster, performance_level, competency_level untuk talent management).
     b. HINDARI kolom teknis kecuali pengguna meminta secara eksplisit: id (PK numerik internal), uuid, semua kolom *_id yang berfungsi sebagai foreign key (pegawai_id, jabatan_id, satker_id, pangkat_id, employee_id, satker_top_id, pendidikan_top_id, dst), kolom embedding/vector, kolom audit (created_at, updated_at, created_by, updated_by), dan kolom JSON/JSONB mentah yang berisi history/log (mis. position_history, grade_history, history_technical_training, history_managerial_training).
     c. Kalau tabel sumber pakai penamaan bahasa Inggris (mis. mantel.period_employees: full_name, position_name, work_unit_top_name, work_unit_name, grade_name), beri ALIAS bahasa Indonesia agar header hasil mudah dibaca atasan: full_name AS nama, position_name AS jabatan, work_unit_top_name AS unit_kerja, work_unit_name AS sub_unit_kerja, grade_name AS pangkat.
-    d. Untuk JOIN, ambil kolom display dari tabel master (mis. j.jabatan_nama, s.namasatker, pk.pangkat_nama) — bukan FK numerik dari tabel utama.
+    d. Untuk JOIN, ambil kolom display dari tabel master (mis. j.jabatan_nama, s.satker_nama, pk.pangkat_nama) — bukan FK numerik dari tabel utama.
     e. KONVENSI nama kolom mantel.period_employees:
        - work_unit_top_name = NAMA UNIT KERJA INDUK / TOP-LEVEL satker (mis. "Balai Besar POM di Bandung", "Direktorat Pengawasan Keamanan Pangan"). Inilah yang dimaksud pengguna saat menyebut "unit kerja", "satker", atau menyebut nama unit kerja BPOM.
        - work_unit_name = SUB-unit di bawahnya (mis. seksi/bidang). JANGAN pakai work_unit_name untuk filter saat pengguna menyebut nama unit kerja induk/satker — query tidak akan ketemu.
@@ -889,7 +994,43 @@ Jika suatu block berisi N/A, artinya data untuk block tersebut tidak tersedia.
        Default: untuk FILTER WHERE berdasarkan nama unit kerja/jabatan/pangkat yang disebut pengguna, gunakan kolom *_top_name (case-insensitive: lower(trim(pe.work_unit_top_name)) = lower(trim('...'))).
     f. Untuk pertanyaan yang menanyakan data pegawai dari mantel.period_employees, default kolom yang ditampilkan: nip, full_name AS nama, position_name AS jabatan, work_unit_top_name AS unit_kerja, work_unit_name AS sub_unit_kerja, grade_name AS pangkat, period_date, plus kolom domain yang relevan (pool, cluster, performance_level, competency_level).
     g. Pengecualian: kalau pengguna eksplisit minta "semua kolom", "lengkap", "termasuk ID", "raw", "detail teknis", atau menyebut kolom teknis spesifik (mis. "tampilkan UUID"), baru boleh include kolom teknis sesuai permintaan.
-19. **INTERPRETASI ENTITAS — JABATAN vs JURUSAN/PROGRAM STUDI**: Frasa berpola `"ahli <X>"`, `"pranata <X>"`, `"analis <X>"`, `"penyelia <X>"`, `"pengawas <X>"`, `"penyuluh <X>"`, `"penyidik <X>"`, `"pemeriksa <X>"`, `"perencana <X>"`, `"arsiparis"`, `"pustakawan"` adalah **NAMA JABATAN FUNGSIONAL** — filter WAJIB di kolom `j.jabatan_nama` dari tabel `public.jabatan_tm` (atau `pe.position_name` / `pe.position_top_name` di mantel.period_employees), BUKAN di kolom `vpt.programstudi`, `vpt.jurusan`, atau `vpt.namasekolah`.
+19. **REKAPITULASI WIDE/PIVOT FORMAT (WAJIB untuk pertanyaan "rekap/rekapitulasi … berdasarkan/per <kategori> pada setiap tipe unit kerja"):**
+    Default output adalah **satu baris per tipe_unit_kerja** dengan kolom-kolom pivot per nilai kategori menggunakan `COUNT(*) FILTER (WHERE …)` atau `SUM(CASE WHEN …)`. JANGAN pakai long-format `GROUP BY tipe_unit_kerja, <kategori>` karena hasil agregasi-nya berbeda struktur.
+    Pivot bucket per kategori (gunakan persis daftar nilai berikut):
+    - **agama** → islam, kristen, protestan, katolik, hindu, budha, lainya  (CATATAN: nilai DB pakai 'Lainya' BUKAN 'Lainnya', dan 'Budha' BUKAN 'Buddha')
+    - **status_kawin** (BUKAN status_perkawinan) → belum_kawin, kawin, janda, duda
+    - **gol_darah** → gol_a, gol_b, gol_ab, gol_o, belum_terisi (NULL atau '')
+    - **status_pegawai** → cpns, pns, polri, pppk
+    - **kelompok_usia / generasi** → baby_boomers (≤1964), gen_x (1965-1980), millennial (1981-1996), gen_z (≥1997)
+    - **pendidikan_top_id** → unset, under_d3 ('01'-'07'), d3 ('08'), d4_s1 ('09','10','11'), profesi ('12'), s2 ('13'), s3 ('14')
+    - **pensiun (BUP) horizon X tahun** → y_plus_1, y_plus_2, …, y_plus_X (gunakan EXTRACT(YEAR FROM tgl_pensiun) = EXTRACT(YEAR FROM CURRENT_DATE)::int + N)
+    - **disabilitas** → total_pegawai vs total_disabilitas (LEFT JOIN disabilitas_tm AND d.active=true; pakai COUNT(DISTINCT d.pegawai_id))
+    - **jenis_kelamin x generasi** → kombinasi: GROUP BY tipe_unit_kerja, jenis_kelamin + pivot generasi
+    Anti-pattern (HARAM): `GROUP BY tipe_unit_kerja, p.agama` — harus pivot per nilai agama, bukan baris per kombinasi.
+    Hanya pakai long-format JIKA pertanyaan menyebut "distribusi per <X>" tanpa "pada setiap tipe unit kerja" dan kategori X tidak terbatas (mis. nama satker, nama provinsi yang ratusan nilai).
+
+20. **DISTRIBUSI per ENTITAS BERNAMA (long-format default):** Untuk pertanyaan "distribusi/jumlah pegawai per <entitas dengan nama>" tanpa "pada setiap tipe unit kerja", gunakan long-format GROUP BY pada kolom NAMA entitas:
+    - "per provinsi domisili" → GROUP BY pr.propinsi_nama (JOIN propinsi_tm via p.propinsi_id), ORDER BY total DESC
+    - "per balai/unit kerja" (tanpa "tipe") → GROUP BY s.satker_nama, s.tipe_balai (sertakan tipe_balai sebagai kolom info), ORDER BY total DESC
+    - "per jabatan" → GROUP BY j.jabatan_nama
+    JANGAN agregat ke kategori (tipe_balai) kalau pengguna minta per nama entitas.
+
+21. **METRIK MASA KERJA / SENIORITAS:** "masa kerja" / "masa kerja terpanjang" / "senioritas" = total karir PNS, dihitung dari `EXTRACT(YEAR FROM CURRENT_DATE)::int - cpns_year` (tabel mantel.period_employees, snapshot terbaru via period_date = (SELECT MAX(period_date)…)). Untuk Top-N masa kerja di unit kerja X: filter `cpns_year IS NOT NULL`, ORDER BY masa_kerja_thn DESC, LIMIT N.
+
+22. **NAMA KOLOM TRICKY (sering salah):**
+    - status pernikahan → kolom `status_kawin` (BUKAN status_perkawinan)
+    - golongan PNS → ambil dari `public.sk_pegawai_v.golongan` (JOIN via pegawai_id), BUKAN dari pegawai_tm langsung
+    - eselon level "III" / "II" / "I" → `split_part(eselon_tm.eselon_nama, '.', 1) = 'III'` (eselon_nama formatnya "III.a", "II.b", dst)
+    - tipe pegawai struktural → `tipepegawai_tm.deskripsi = 'Struktural'` (BUKAN tipepegawai_id numerik)
+
+22b. **NAMA TABEL TRICKY — tabel satker (sering DIHALUSINASI):** Tabel satuan kerja BPOM TIDAK mengikuti pola `*_tm` seperti master lain. Nama tabel yang BENAR adalah `public."SIAP_SATKER_TOP"` (uppercase, case-sensitive, WAJIB double-quoted). Kolom utamanya: `satker_id` (PK), `satker_nama` (TEXT nama unit kerja), `tipe_balai` ('P','B','BA','BB','L'). FK dari pegawai: `p.satker_top_id` → `s.satker_id`.
+    - ANTI-PATTERN (HARAM — tabel tidak ada): `FROM public.satker_tm`, `JOIN public.satker_tm`, `JOIN satker_tm s`, atau quoting salah seperti `public."satker_tm"`.
+    - ANTI-PATTERN (HARAM — kolom tidak ada): `s.nama_satker`, `s.namasatker`, `s.nama_unit_kerja`, `s.nama_balai` (SEMUA salah — gunakan `s.satker_nama`).
+    - Contoh KORREK: `JOIN public."SIAP_SATKER_TOP" s ON p.satker_top_id = s.satker_id`.
+
+23. **CROSS-SCHEMA JOIN (public ↔ mantel):** Kalau pertanyaan butuh data demografis (public.pegawai_tm) + data kinerja/snapshot (mantel.period_employees), JOIN via `pe.nip = p.nip AND pe.period_date = (SELECT MAX(period_date) FROM mantel.period_employees)`. Kolom kinerja: `pe.performance_avg` (numerik 0-5).
+
+24. **INTERPRETASI ENTITAS — JABATAN vs JURUSAN/PROGRAM STUDI**: Frasa berpola `"ahli <X>"`, `"pranata <X>"`, `"analis <X>"`, `"penyelia <X>"`, `"pengawas <X>"`, `"penyuluh <X>"`, `"penyidik <X>"`, `"pemeriksa <X>"`, `"perencana <X>"`, `"arsiparis"`, `"pustakawan"` adalah **NAMA JABATAN FUNGSIONAL** — filter WAJIB di kolom `j.jabatan_nama` dari tabel `public.jabatan_tm` (atau `pe.position_name` / `pe.position_top_name` di mantel.period_employees), BUKAN di kolom `vpt.programstudi`, `vpt.jurusan`, atau `vpt.namasekolah`.
     - Contoh KORREK untuk "ahli komputer": `lower(j.jabatan_nama) LIKE '%ahli komputer%' OR lower(j.jabatan_nama) LIKE '%pranata komputer%'`. Kata "komputer" di sini adalah bagian nama jabatan, BUKAN jurusan studi.
     - ANTI-PATTERN (HARAM): memfilter `lower(vpt.programstudi) LIKE '%komputer%'` atau `lower(vpt.jurusan) LIKE '%komputer%'` untuk frasa "ahli komputer". Itu salah interpretasi domain.
     - Hanya bila pengguna eksplisit menyebut kata kunci jurusan/lulusan/program studi (mis. "lulusan jurusan komputer", "program studi farmasi", "jurusan teknik informatika"), filter dilakukan di `vpt.programstudi` atau `vpt.jurusan`.

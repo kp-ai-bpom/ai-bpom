@@ -8,7 +8,7 @@ import logging
 from app.core.llm import LLMAdapter
 from app.core.logger import log as core_log
 
-from ..sql_generator.parsers import strip_thinking
+from .generator_parsers import strip_thinking
 from .config import SQLValidationConfig
 from .parsers import parse_judge_verdict_lenient
 from .prompts import build_judge_prompt, judge_system_message
@@ -49,7 +49,8 @@ class SemanticJudge:
 
         try:
             response = await self._llm_adapter.deep_think.bind(
-                max_tokens=self._config.judge_max_tokens
+                max_tokens=self._config.judge_max_tokens,
+                temperature=self._config.judge_llm_temperature,
             ).ainvoke(
                 [
                     {"role": "system", "content": judge_system_message()},

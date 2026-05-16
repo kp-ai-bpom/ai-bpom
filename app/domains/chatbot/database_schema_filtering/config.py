@@ -3,7 +3,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from app.core.config import settings
+from app.domains.chatbot.core.config import (
+    _resolve_stage_temperature,
+    chatbot_settings as settings,
+)
 
 
 DEFAULT_ALLOWED_TABLES: dict[str, list[str]] = {
@@ -47,6 +50,7 @@ class SemanticMemoryConfig:
     max_context_chars: int
     keyword_retries: int
     sample_rows_per_table: int
+    llm_temperature: float
 
 
 
@@ -92,4 +96,7 @@ def get_semantic_memory_config() -> SemanticMemoryConfig:
         max_context_chars=max(2000, settings.CHATBOT_MAX_CONTEXT_CHARS),
         keyword_retries=max(0, settings.CHATBOT_KEYWORD_RETRIES),
         sample_rows_per_table=max(1, settings.CHATBOT_SAMPLE_ROWS_PER_TABLE),
+        llm_temperature=_resolve_stage_temperature(
+            "CHATBOT_SCHEMA_KEYWORD_LLM_TEMPERATURE"
+        ),
     )

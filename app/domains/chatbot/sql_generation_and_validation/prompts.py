@@ -112,7 +112,7 @@ Empat kesalahan umum penilai sebelumnya yang HARUS Anda hindari:
    - Kolom **ID** berakhiran ``_id`` (mis. ``pendidikan_top_id``,
      ``jabatan_id``, ``satker_top_id``, ``pangkat_id``).
    - Kolom **TEXT name** TIDAK berakhiran ``_id`` (mis. ``v.pendidikan``,
-     ``j.jabatan_nama``, ``s.namasatker``, ``s.satker_nama``,
+     ``j.jabatan_nama``, ``s.satker_nama``,
      ``pk.pangkat_nama``, ``vpt.namasekolah``, ``vpt.programstudi``,
      ``p.nama``, ``p.nama_lengkap_gelar``, ``pe.full_name``,
      ``pe.position_name``).
@@ -200,7 +200,7 @@ sudah benar menjadi salah. Bila ragu, default ke PASS.
    memang menjawab pertanyaan yang berbeda dari yang diajukan user.
    PENTING: jangan menuduh SQL "memakai ID bukan nama" tanpa memverifikasi
    nama kolom. Kolom **TEXT name** di skema BPOM sangat banyak dan TIDAK
-   diakhiri ``_id``: ``v.pendidikan``, ``j.jabatan_nama``, ``s.namasatker``,
+   diakhiri ``_id``: ``v.pendidikan``, ``j.jabatan_nama``, ``s.satker_nama``,
    ``pk.pangkat_nama``, ``vpt.namasekolah``, ``vpt.programstudi``,
    ``vpt.jurusan``, ``p.nama``, ``p.nama_lengkap_gelar``, dll. Kolom **ID**
    biasanya berakhiran ``_id`` (``pendidikan_top_id``, ``jabatan_id``,
@@ -243,7 +243,7 @@ sudah benar menjadi salah. Bila ragu, default ke PASS.
    tertukar antara kolom **kode/ID** (``pendidikan_top_id``,
    ``jabatan_id``, ``satker_top_id``, ``pangkat_id``, dll. — biasanya
    pendek/numerik/alfanumerik) dan kolom **nama** (``v.pendidikan``,
-   ``j.jabatan_nama``, ``s.namasatker``, ``pk.pangkat_nama``,
+   ``j.jabatan_nama``, ``s.satker_nama``, ``pk.pangkat_nama``,
    ``vpt.namasekolah``, dll. — TEXT bebas). SQL yang menampilkan
    ``v.pendidikan AS pendidikan_terakhir`` (TEXT name) sudah memenuhi
    permintaan "nama pendidikan terakhir"; jangan bilang "memakai ID bukan

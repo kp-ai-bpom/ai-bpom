@@ -191,6 +191,10 @@ class ChatbotRepository:
             """,
             f"""
             ALTER TABLE {_CHAT_MESSAGES_TABLE}
+            ADD COLUMN IF NOT EXISTS ambiguity_metadata JSONB
+            """,
+            f"""
+            ALTER TABLE {_CHAT_MESSAGES_TABLE}
             ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             """,
             f"""
@@ -333,6 +337,52 @@ class ChatbotRepository:
             await self._db.rollback()
             raise
 
+    async def update_latest_chat_message_ambiguity(
+        self,
+        session_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Set ``ambiguity_metadata`` pada row ``chat_messages`` paling baru
+        untuk session ini.
+
+        Dipanggil setelah ``persist_chat_message`` (yang menambahkan baris
+        baru) untuk meng-attach jejak resolusi ambiguitas ke turn yang baru
+        saja disimpan. Tanpa ini, history endpoint tidak punya cara
+        merekonstruksi badge "Klarifikasi: dipilih X dari [A,B,C]" setelah
+        refresh — karena ``persist_chat_message`` sendiri tidak tahu konteks
+        ambiguitas yang baru di-resolve.
+
+        Catatan: tabel sumber kebenaran untuk procedural memory adalah
+        ``question_rewriting_episodes`` (di-update terpisah). Kita tetap
+        duplicate ke ``chat_messages`` karena history endpoint hanya membaca
+        dari ``chat_messages`` (per turn), sedangkan episode dapat
+        non-1:1 dengan turn (skip/rewrite events).
+        """
+        update_stmt = text(
+            f"""
+            UPDATE {_CHAT_MESSAGES_TABLE}
+            SET ambiguity_metadata = CAST(:ambiguity_metadata AS JSONB)
+            WHERE id = (
+                SELECT id FROM {_CHAT_MESSAGES_TABLE}
+                WHERE session_id = :session_id
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+            )
+            """
+        )
+        try:
+            await self._db.execute(
+                update_stmt,
+                {
+                    "session_id": session_id,
+                    "ambiguity_metadata": json.dumps(metadata, ensure_ascii=False),
+                },
+            )
+            await self._db.commit()
+        except SQLAlchemyError:
+            await self._db.rollback()
+            raise
+
     async def get_chat_session_messages(
         self,
         user_id: str,
@@ -350,7 +400,7 @@ class ChatbotRepository:
         message_query = text(
             f"""
             SELECT question, standalone_question, query, explanation,
-                   pipeline_trace, created_at
+                   pipeline_trace, ambiguity_metadata, created_at
             FROM {_CHAT_MESSAGES_TABLE}
             WHERE session_id = :session_id
             ORDER BY created_at, id
@@ -403,21 +453,152 @@ class ChatbotRepository:
                 return None
             return None
 
-        conversations = [
-            {
-                "question": str(row["question"]),
-                "standalone_question": str(
-                    row["standalone_question"] or row["question"]
+        def _decode_ambiguity_metadata(value: Any) -> dict[str, Any] | None:
+            """Decode kolom JSONB ``ambiguity_metadata``.
+
+            Sama seperti ``pipeline_trace``: asyncpg umumnya mengembalikan
+            dict langsung, tapi defensive-decode dari string/bytes.
+            """
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, (bytes, bytearray)):
+                try:
+                    value = value.decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+            if isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except json.JSONDecodeError:
+                    return None
+                if isinstance(decoded, dict):
+                    return decoded
+            return None
+
+        def _normalize_ambiguity_options(raw: Any) -> list[dict[str, str]]:
+            """Normalisasi ``options_offered`` ke ``[{id, label, description}]``.
+
+            Toleran terhadap data lama yang menyimpan ``list[str]`` tanpa
+            description/id, atau metadata baru ``list[dict]`` dengan field
+            ``label``/``description``. Bila ``id`` tidak ada di payload
+            tersimpan, di-generate synthetic ``opt_<n>`` (1-based) supaya
+            ``ClarificationOption`` schema tetap valid pada response history.
+            """
+            if not isinstance(raw, list):
+                return []
+            normalized: list[dict[str, str]] = []
+            for idx, item in enumerate(raw, start=1):
+                if isinstance(item, dict):
+                    label = str(item.get("label") or "").strip()
+                    if not label:
+                        continue
+                    opt_id = str(item.get("id") or "").strip() or f"opt_{idx}"
+                    normalized.append(
+                        {
+                            "id": opt_id,
+                            "label": label,
+                            "description": str(item.get("description") or "").strip(),
+                        }
+                    )
+                else:
+                    label = str(item or "").strip()
+                    if label:
+                        normalized.append(
+                            {"id": f"opt_{idx}", "label": label, "description": ""}
+                        )
+            return normalized
+
+        conversations = []
+        for row in message_rows:
+            ambiguity_meta = _decode_ambiguity_metadata(row.get("ambiguity_metadata"))
+            # Field clarification* dipisah dari blob mentah ``ambiguity_metadata``
+            # supaya frontend cukup baca 4 field flat tanpa perlu paham struktur
+            # internal metadata. Default ``None``/``[]`` untuk turn non-ambigu.
+            clarification_asked: str | None = None
+            interpretation_chosen: str | None = None
+            ambiguity_type: str | None = None
+            clarification_options: list[dict[str, str]] = []
+            if ambiguity_meta is not None:
+                _ca = ambiguity_meta.get("clarification_asked")
+                clarification_asked = str(_ca).strip() if _ca else None
+                _ic = ambiguity_meta.get("interpretation_chosen")
+                interpretation_chosen = str(_ic).strip() if _ic else None
+                _at = ambiguity_meta.get("ambiguity_type")
+                ambiguity_type = str(_at).strip() if _at else None
+                clarification_options = _normalize_ambiguity_options(
+                    ambiguity_meta.get("options_offered")
+                )
+            conversations.append(
+                {
+                    "question": str(row["question"]),
+                    "standalone_question": str(
+                        row["standalone_question"] or row["question"]
+                    ),
+                    "query": str(row["query"]),
+                    "explanation": (
+                        None if row["explanation"] is None else str(row["explanation"])
+                    ),
+                    "pipeline_trace": _decode_pipeline_trace(row["pipeline_trace"]),
+                    "clarification_asked": clarification_asked,
+                    "clarification_options": clarification_options,
+                    "interpretation_chosen": interpretation_chosen,
+                    "ambiguity_type": ambiguity_type,
+                    "created_at": row["created_at"],
+                }
+            )
+
+        # Sertakan pending clarification (jika ada & belum expired) supaya UI
+        # bisa re-render opsi jawaban setelah refresh. Turn clarification
+        # belum punya SQL final sehingga tidak dipersist di ``chat_messages``
+        # — tanpa field ini, opsi hilang dari riwayat.
+        pending_row = await self.load_latest_pending_clarification(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        pending_payload: dict[str, Any] | None = None
+        if pending_row is not None:
+            raw_options = pending_row.get("options")
+            if isinstance(raw_options, (bytes, bytearray)):
+                try:
+                    raw_options = raw_options.decode("utf-8")
+                except UnicodeDecodeError:
+                    raw_options = None
+            if isinstance(raw_options, str):
+                try:
+                    raw_options = json.loads(raw_options)
+                except json.JSONDecodeError:
+                    raw_options = None
+            normalized_options: list[dict[str, Any]] = []
+            for item in raw_options or []:
+                if isinstance(item, dict):
+                    normalized_options.append(
+                        {
+                            "label": str(item.get("label") or "").strip(),
+                            "description": str(item.get("description") or "").strip(),
+                        }
+                    )
+                else:
+                    label_text = str(item or "").strip()
+                    if label_text:
+                        normalized_options.append(
+                            {"label": label_text, "description": ""}
+                        )
+            pending_payload = {
+                "pending_id": str(pending_row.get("pending_id") or ""),
+                "question": str(pending_row.get("standalone_question") or ""),
+                "clarification_question": str(
+                    pending_row.get("clarification_question") or ""
                 ),
-                "query": str(row["query"]),
-                "explanation": (
-                    None if row["explanation"] is None else str(row["explanation"])
+                "options": normalized_options,
+                "ambiguity_type": (
+                    None
+                    if pending_row.get("ambiguity_type") is None
+                    else str(pending_row.get("ambiguity_type"))
                 ),
-                "pipeline_trace": _decode_pipeline_trace(row["pipeline_trace"]),
-                "created_at": row["created_at"],
+                "expires_at": pending_row.get("expires_at"),
             }
-            for row in message_rows
-        ]
 
         return {
             "user_id": str(session_row["user_id"]),
@@ -426,6 +607,7 @@ class ChatbotRepository:
             "created_at": session_row["created_at"],
             "updated_at": session_row["updated_at"],
             "conversations": conversations,
+            "pending_clarification": pending_payload,
         }
 
     async def list_chat_sessions(self, user_id: str) -> list[dict[str, Any]]:

@@ -85,6 +85,20 @@ def parse_detection_output(content: str) -> AmbiguityDetectionResult | None:
     )
 
 
+def parse_interpretation_sample(content: str) -> str:
+    """Parse output sampler interpretasi → string ``pertanyaan_mandiri``.
+
+    Mengembalikan string kosong bila JSON invalid atau field hilang. Caller
+    bertanggung jawab handle empty string sebagai sample gagal (tidak
+    di-embed, dihitung sebagai ``ERROR`` fingerprint di UQ).
+    """
+    parsed = _extract_json_object(content)
+    if parsed is None:
+        return ""
+    text = str(parsed.get("pertanyaan_mandiri") or "").strip()
+    return text
+
+
 def parse_refined_question(content: str) -> str:
     cleaned = content.strip()
     cleaned = re.sub(r"^```(?:text)?\s*", "", cleaned)

@@ -29,7 +29,7 @@ from app.core.llm import LLMAdapter
 from app.core.logger import log as core_log
 
 from ..repositories import ChatbotRepository
-from ..sql_generator import SQLGenerator
+from ..sql_generation_and_validation import SQLGenerator
 from .config import SQLValidationConfig, get_sql_validation_config
 from .execution_validator import ExecutionValidator
 from .parsers import is_trivial_select
@@ -190,6 +190,16 @@ class SQLValidationService:
         )
         if not revised_sql:
             return None, ""
+
+        # Apply normalisasi tabel/kolom yang sama dengan generator agar
+        # halusinasi yang sering muncul saat refine (mis. `public.satker`,
+        # `public.pegawai`, `public.SIAP_SATKER_TOP` tanpa quote) langsung
+        # dirapikan sebelum eksekusi. Rewrite ini idempotent.
+        try:
+            from .generator import SQLGenerator as _SQLGen
+            revised_sql = _SQLGen.normalize_known_aliases(revised_sql)
+        except Exception:  # pragma: no cover - best effort
+            log.debug("normalize_known_aliases gagal dipanggil pada refiner output", exc_info=True)
 
         # Tolak no-op revision: jika refiner mengembalikan SQL yang identik
         # (setelah normalisasi whitespace/case) dengan SQL sebelumnya, perlakukan

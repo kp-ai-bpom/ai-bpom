@@ -3,7 +3,7 @@ from typing import Any, Mapping, Sequence
 
 from toon_format import encode as encode_toon
 
-from app.core.config import settings
+from app.domains.chatbot.core.config import chatbot_settings as settings
 
 TOON_NA = "N/A"
 

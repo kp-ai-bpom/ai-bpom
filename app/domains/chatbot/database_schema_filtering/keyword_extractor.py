@@ -37,10 +37,12 @@ class KeywordExtractor:
         llm_adapter: LLMAdapter,
         allowed_tables: dict[str, list[str]],
         retries: int,
+        llm_temperature: float,
     ):
         self._llm_adapter = llm_adapter
         self._allowed_tables = allowed_tables
         self._retries = max(0, retries)
+        self._llm_temperature = llm_temperature
 
     async def extract(self, query: str) -> list[str]:
         query = query.strip()
@@ -114,7 +116,10 @@ Keluarkan output sebagai JSON array SAJA, tanpa teks lain.
 
         for _ in range(self._retries + 1):
             try:
-                response = await self._llm_adapter.think.bind(max_tokens=1200).ainvoke(
+                response = await self._llm_adapter.think.bind(
+                    max_tokens=1200,
+                    temperature=self._llm_temperature,
+                ).ainvoke(
                     [
                         {"role": "system", "content": system_prompt},
                         {

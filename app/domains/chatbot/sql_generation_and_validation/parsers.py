@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from ..sql_generator.parsers import (
+from .generator_parsers import (
     extract_json_object,
     extract_sql_from_fence,
     extract_sql_from_text,

@@ -17,13 +17,18 @@ from app.core.logger import log
 from app.core.llm import LLMAdapter, init_llm
 from app.db.database import get_db
 
-from .ambiguity import AmbiguityService, InterpretationOption, get_ambiguity_config
-from .question_rewriting import (
+from .semantic_disambiguation import (
+    AmbiguityDetectionResult,
+    AmbiguityService,
+    InterpretationOption,
+    get_ambiguity_config,
+)
+from .question_contextual_rewriting import (
     QuestionRewritingService,
     get_question_rewriting_config,
 )
 from .repositories import ChatbotRepository
-from .semantic_memory import (
+from .database_schema_filtering import (
     PreparedSchemaContext,
     RetrievedTable,
     SemanticMemoryPipeline,
@@ -325,7 +330,25 @@ class ChatbotService:
         user_id: str,
         session_id: str,
         metadata: dict[str, Any],
+        *,
+        persist_to_chat_message: bool = True,
     ) -> None:
+        """Persist jejak resolusi ambiguitas.
+
+        Args:
+            persist_to_chat_message: Bila ``True`` (default), metadata juga
+                di-attach ke row ``chat_messages`` paling baru milik session
+                ini. Set ke ``False`` pada jalur ``ASK clarification`` (turn
+                yang belum punya SQL final dan TIDAK menulis baris baru di
+                ``chat_messages``) — tanpa guard ini, update "latest row"
+                akan nyangkut ke turn sebelumnya yang tidak terkait,
+                menghasilkan badge klarifikasi salah pada history.
+
+                Catatan: pending clarification yang aktif tetap bisa di-render
+                UI lewat field ``pending_clarification`` pada response history
+                (tabel ``chat_pending_clarifications``), jadi tidak ada
+                kehilangan data UX dari skip ini.
+        """
         if self._repository is None:
             return
 
@@ -337,7 +360,28 @@ class ChatbotService:
             )
         except Exception as exc:
             log.warning(
-                "Failed to persist ambiguity metadata user_id=%s session_id=%s error=%s",
+                "Failed to persist ambiguity metadata (episode) user_id=%s session_id=%s error=%s",
+                user_id,
+                session_id,
+                exc,
+            )
+
+        if not persist_to_chat_message:
+            return
+
+        # Duplicate ke ``chat_messages.ambiguity_metadata`` supaya history
+        # endpoint (``GET /api/chatbot/chat``) bisa expose 4 field flat
+        # (clarification_asked, clarification_options, interpretation_chosen,
+        # ambiguity_type) tanpa join ke ``question_rewriting_episodes``.
+        # Mode best-effort: kegagalan tidak mengganggu user flow.
+        try:
+            await self._repository.update_latest_chat_message_ambiguity(
+                session_id=session_id,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            log.warning(
+                "Failed to persist ambiguity metadata (chat_message) user_id=%s session_id=%s error=%s",
                 user_id,
                 session_id,
                 exc,
@@ -604,12 +648,24 @@ class ChatbotService:
         user_id: str,
         message: str,
         session_id: Optional[str] = None,
+        ablate_stages: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Run semantic pipeline and persist chat session/message in database.
-        
+
         Auto-detects: jika session punya pending clarification,
         treat message sebagai respon klarifikasi; jika tidak, treat sebagai pertanyaan baru.
+
+        ``ablate_stages`` (eval-only): himpunan nama tahap yang ingin
+        dimatikan untuk benchmark ablation. Nilai yang dikenali:
+            - ``"rewriting"``     → matikan Stage 1 (question rewriting)
+            - ``"ambiguity"``     → matikan Stage 3 (ambiguity detection)
+            - ``"active_filter"`` → matikan Stage 5b (deterministic active filter)
+        Nilai lain diabaikan. Default: kosong (semua tahap aktif).
         """
+        ablate_rewriting = "rewriting" in ablate_stages
+        ablate_ambiguity = "ambiguity" in ablate_stages
+        ablate_active_filter = "active_filter" in ablate_stages
+
         normalized_user_id = str(user_id).strip()
         normalized_message = str(message).strip()
 
@@ -715,14 +771,26 @@ class ChatbotService:
             options_payload = self._parse_json_payload(pending.get("options"))
             # Stored shape (preferred): list of dict {label, description}.
             # Backward-compat: list of plain strings.
+            #
+            # ``options`` (list[str]) dipakai untuk indexing/resolve user
+            # response. ``options_dicts`` (list[dict{label, description}])
+            # dipakai untuk persist ke ``ambiguity_metadata.options_offered``
+            # supaya UI history bisa render label + description (bukan label
+            # saja). Tanpa varian dict, description hilang setelah refresh.
             options: list[str] = []
+            options_dicts: list[dict[str, str]] = []
             for item in options_payload or []:
                 if isinstance(item, dict):
                     label_text = str(item.get("label") or "").strip()
+                    description_text = str(item.get("description") or "").strip()
                 else:
                     label_text = str(item or "").strip()
+                    description_text = ""
                 if label_text:
                     options.append(label_text)
+                    options_dicts.append(
+                        {"label": label_text, "description": description_text}
+                    )
             defaulted = False
 
             # Map option-id (e.g. "opt_1") back to the underlying interpretation label.
@@ -749,6 +817,7 @@ class ChatbotService:
                 ambiguity_type=str(pending.get("ambiguity_type") or "scope"),
                 clarification_question=str(pending.get("clarification_question") or ""),
                 user_response=user_response,
+                conversation_history=conversation_history,
             )
 
             relevant_schema_payload = self._parse_json_payload(
@@ -853,6 +922,7 @@ class ChatbotService:
                 pipeline_result = await self._semantic_pipeline.run_from_prepared(
                     query=generator_query,
                     prepared=prepared,
+                    ablate_active_filter=ablate_active_filter,
                 )
                 _stage.set_output(
                     {
@@ -910,6 +980,13 @@ class ChatbotService:
                 "was_ambiguous": True,
                 "ambiguity_type": str(pending.get("ambiguity_type") or "scope"),
                 "clarification_asked": str(pending.get("clarification_question") or ""),
+                # ``options_offered`` di-persist supaya UI bisa "menggambar
+                # ulang" tampilan history "user pernah memilih X dari [A,B,C]"
+                # setelah refresh halaman. Disimpan sebagai list[dict] dengan
+                # ``label`` + ``description`` agar UI history menampilkan
+                # konteks opsi yang sama persis dengan saat clarification
+                # ditampilkan, bukan hanya label.
+                "options_offered": list(options_dicts),
                 "user_response": user_response,
                 "interpretation_chosen": user_response,
                 "auto_resolved": False,
@@ -1021,6 +1098,7 @@ class ChatbotService:
                         query=canonical,
                         prepared=prepared,
                         skip_validation=True,
+                        ablate_active_filter=ablate_active_filter,
                     )
                     _stage.set_output(
                         {
@@ -1058,6 +1136,10 @@ class ChatbotService:
                     "was_ambiguous": True,
                     "ambiguity_type": procedural_rule.get("ambiguity_type"),
                     "clarification_asked": None,
+                    # Auto-resolved via procedural memory: tidak ada opsi yang
+                    # ditawarkan (skip clarification), tetap kirim list kosong
+                    # demi konsistensi schema.
+                    "options_offered": [],
                     "user_response": None,
                     "interpretation_chosen": canonical,
                     "auto_resolved": True,
@@ -1094,7 +1176,17 @@ class ChatbotService:
         # Tanpa guard ini, episodic memory lintas-sesi bisa "memperkaya" pertanyaan
         # vague menjadi specific sehingga lolos dari detektor ambiguitas.
         rewrite_invoked = False
-        if self._question_rewriting_service is not None and conversation_history:
+        stage1_uq_signal: dict[str, Any] | None = None
+        if ablate_rewriting:
+            recorder.skip(
+                "question_rewriting",
+                "Dilewati: Stage 1 dimatikan via ablate_stages (eval).",
+            )
+        if (
+            not ablate_rewriting
+            and self._question_rewriting_service is not None
+            and conversation_history
+        ):
             with recorder.stage("question_rewriting") as _stage:
                 _stage.set_input(
                     {
@@ -1112,16 +1204,48 @@ class ChatbotService:
                 if rewritten_query:
                     standalone_query = rewritten_query
                 rewrite_invoked = True
-                _stage.set_output(
-                    {
-                        "original_query": rewrite_result.original_query,
-                        "rewritten_query": rewrite_result.rewritten_query,
-                        "episodic_matches_count": rewrite_result.episodic_matches_count,
-                        "top_similarity": round(
-                            float(rewrite_result.top_similarity or 0.0), 4
+                _stage_output: dict[str, Any] = {
+                    "original_query": rewrite_result.original_query,
+                    "rewritten_query": rewrite_result.rewritten_query,
+                    "episodic_matches_count": rewrite_result.episodic_matches_count,
+                    "top_similarity": round(
+                        float(rewrite_result.top_similarity or 0.0), 4
+                    ),
+                }
+                # Surface sinyal UQ Stage 1 (M-sampling rewriter NL→NL)
+                # langsung dari rewrite_result.uncertainty. Mirror format
+                # yang sebelumnya di-copy post-hoc dari Stage 3, namun
+                # sekarang benar-benar dihitung di Stage 1. Threshold
+                # τ_U=0.40 berasal dari kalibrasi rewriter (frozen).
+                if rewrite_result.uncertainty is not None:
+                    _uq = rewrite_result.uncertainty
+                    _uq_payload = {
+                        "h_norm": round(float(_uq.get("h_norm", 0.0)), 4),
+                        "tau_u": float(_uq.get("tau_u", 0.40)),
+                        "verdict": _uq.get("verdict", "confident"),
+                        "m_samples": int(_uq.get("m_total", 0)),
+                        "m_valid": int(_uq.get("m_valid", 0)),
+                        "unique_clusters": int(_uq.get("unique_outcomes", 0)),
+                        "majority_ratio": round(
+                            float(_uq.get("majority_ratio", 0.0)), 4
                         ),
+                        "mean_intra_cosine": round(
+                            float(_uq.get("mean_intra_cosine", 0.0)), 4
+                        ),
+                        "n_error": int(_uq.get("n_error", 0)),
+                        "source_stage": "question_rewriting",
                     }
-                )
+                    _stage_output["uncertainty"] = _uq_payload
+                    _stage.set_metadata({"uncertainty": _uq_payload})
+                    # Hoist sinyal UQ Stage 1 ke outer scope sehingga Stage 3
+                    # (ambiguity_detection) dapat menghormati verdict ini untuk
+                    # men-trigger clarification — menjaga konsistensi Stage 1↔3
+                    # ↔4↔5. Tanpa hoist, downstream akan men-treat
+                    # ``rewritten_query`` majority cluster sebagai ground truth
+                    # dan menjawab dengan SQL berdasar tebakan tunggal.
+                    stage1_uq_signal = dict(_uq)
+                    stage1_uq_signal["verdict"] = _uq_payload["verdict"]
+                _stage.set_output(_stage_output)
                 if rewritten_query and rewritten_query != normalized_message:
                     _stage.set_summary(
                         "Rewriter aktif: pertanyaan ditulis ulang menjadi standalone"
@@ -1155,6 +1279,105 @@ class ChatbotService:
                 content=normalized_message,
             )
 
+        # Short-circuit Stage 1: bila rewriter UQ (Stage 1) sudah menilai
+        # ambigu karena dangling reference (demonstrative tanpa antecedent
+        # di working/episodic memory), maka Stage 2-5 tidak perlu dieksekusi
+        # sama sekali — langsung minta klarifikasi ke user dengan opsi
+        # referent yang sudah ter-enumerasi pre-check. Ini menjaga
+        # konsistensi pipeline (1 ambigu ⇒ stop), mempercepat respons
+        # (hemat ~7 detik schema retrieval + Stage 3 LLM + SQL gen),
+        # dan menghindari Stage 4 menjawab berbasis tebakan majority
+        # cluster ("per provinsi") yang menghilangkan ambiguitas secara
+        # artifisial.
+        if (
+            stage1_uq_signal is not None
+            and stage1_uq_signal.get("verdict") == "ambiguous"
+            and isinstance(stage1_uq_signal.get("dangling"), dict)
+        ):
+            _dang = stage1_uq_signal["dangling"]
+            _refs = [
+                str(r) for r in (_dang.get("referents") or []) if str(r).strip()
+            ]
+            if _refs:
+                _noun = str(_dang.get("noun") or "").strip()
+                _dem = str(_dang.get("demonstrative") or "").strip()
+                _clar_q = (
+                    f"Maaf, '{_noun} {_dem}' di pertanyaan Anda merujuk "
+                    f"ke apa? Mohon pilih salah satu interpretasi berikut:"
+                ).strip()
+                _opts_payload_db = [
+                    {"label": r, "description": ""} for r in _refs
+                ]
+                _short_skip_reason = (
+                    "Dilewati: Stage 1 sudah men-detect ambiguitas "
+                    "(dangling reference) — pipeline langsung minta "
+                    "klarifikasi ke user."
+                )
+                for _sid in (
+                    "schema_retrieval",
+                    "ambiguity_detection",
+                    "sql_generation",
+                    "sql_validation",
+                ):
+                    recorder.skip(_sid, _short_skip_reason)
+
+                _pending_expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=self._ambiguity_config.session_ttl_seconds
+                )
+                _pending_id = await self._repository.create_pending_clarification(
+                    user_id=normalized_user_id,
+                    session_id=resolved_session_id,
+                    standalone_question=normalized_message,
+                    schema_context="",
+                    relevant_schema={
+                        "keywords": [],
+                        "predicted_tables": {},
+                        "schema_tables": [],
+                    },
+                    clarification_question=_clar_q,
+                    options=_opts_payload_db,
+                    ambiguity_type="scope",
+                    expires_at=_pending_expires_at,
+                )
+                await self._save_ambiguity_metadata(
+                    user_id=normalized_user_id,
+                    session_id=resolved_session_id,
+                    metadata={
+                        "was_ambiguous": True,
+                        "ambiguity_type": "scope",
+                        "clarification_asked": _clar_q,
+                        "user_response": None,
+                        "interpretation_chosen": None,
+                        "auto_resolved": False,
+                        "defaulted": False,
+                        "pending_id": _pending_id,
+                        "source_stage": "question_rewriting",
+                    },
+                    # Turn ASK clarification: TIDAK ada row baru di
+                    # ``chat_messages``. Skip update agar tidak nyangkut ke
+                    # turn lama. UI tetap dapat opsi via ``pending_clarification``.
+                    persist_to_chat_message=False,
+                )
+
+                _options_resp = [
+                    {
+                        "id": f"opt_{i + 1}",
+                        "label": r,
+                        "description": "",
+                    }
+                    for i, r in enumerate(_refs)
+                ]
+                return {
+                    "type": "clarification",
+                    "user_id": normalized_user_id,
+                    "session_id": resolved_session_id,
+                    "question": _clar_q,
+                    "query": "",
+                    "explanation": "",
+                    "options": _options_resp,
+                    "pipeline_trace": recorder.to_payload(),
+                }
+
         with recorder.stage("schema_retrieval") as _stage:
             _stage.set_input({"query_for_retrieval": standalone_query})
             prepared = await self._semantic_pipeline.prepare_context(standalone_query)
@@ -1181,22 +1404,28 @@ class ChatbotService:
                 max_turns=self._ambiguity_config.max_history_turns,
             )
 
-        with recorder.stage("ambiguity_detection") as _stage:
-            _stage.set_input(
-                {
-                    "question": standalone_query,
-                    "original_question": normalized_message,
-                    "history_turns": len(conversation_history),
-                }
+        if ablate_ambiguity:
+            recorder.skip(
+                "ambiguity_detection",
+                "Dilewati: Stage 3 dimatikan via ablate_stages (eval).",
             )
-            detection = await self._ambiguity_service.detect(
-                question=standalone_query,
-                schema_context=prepared.context,
-                conversation_history=conversation_history,
-                original_question=normalized_message,
-            )
-            _stage.set_output(
-                {
+            detection = AmbiguityDetectionResult(is_ambiguous=False)
+        else:
+            with recorder.stage("ambiguity_detection") as _stage:
+                _stage.set_input(
+                    {
+                        "question": standalone_query,
+                        "original_question": normalized_message,
+                        "history_turns": len(conversation_history),
+                    }
+                )
+                detection = await self._ambiguity_service.detect(
+                    question=standalone_query,
+                    schema_context=prepared.context,
+                    conversation_history=conversation_history,
+                    original_question=normalized_message,
+                )
+                _ambiguity_output: dict[str, Any] = {
                     "is_ambiguous": detection.is_ambiguous,
                     "ambiguity_type": detection.ambiguity_type,
                     "clarification_question": detection.clarification_question,
@@ -1205,14 +1434,37 @@ class ChatbotService:
                         for opt in (detection.interpretation_options or [])
                     ],
                 }
-            )
-            if detection.is_ambiguous:
-                _stage.set_summary(
-                    f"Ambigu terdeteksi (tipe={detection.ambiguity_type}, "
-                    f"{len(detection.interpretation_options or [])} opsi)"
-                )
-            else:
-                _stage.set_summary("Tidak ambigu (PASS)")
+                if detection.h_norm is not None:
+                    _ambiguity_output["uncertainty"] = {
+                        "h_norm": round(float(detection.h_norm), 4),
+                        "tau_u": detection.tau_u,
+                        "verdict": (
+                            "ambiguous"
+                            if float(detection.h_norm) > float(detection.tau_u or 0.40)
+                            else "confident"
+                        ),
+                        "m_samples": detection.m_samples,
+                        "unique_clusters": detection.unique_clusters,
+                    }
+                _stage.set_output(_ambiguity_output)
+                # Catatan: kasus Stage 1 ambigu+dangling sudah di-short-circuit
+                # sebelum Stage 2 di atas, sehingga blok ini hanya tereksekusi
+                # untuk path non-dangling (LLM-based Stage 3 detection).
+                if detection.is_ambiguous:
+                    _stage.set_summary(
+                        f"Ambigu terdeteksi (tipe={detection.ambiguity_type}, "
+                        f"{len(detection.interpretation_options or [])} opsi)"
+                    )
+                else:
+                    _stage.set_summary("Tidak ambigu (PASS)")
+
+            # Catatan: sinyal UQ Stage 1 (question_rewriting) sekarang
+            # dihitung langsung di QuestionRewritingService.rewrite() via
+            # M-sampling rewriter NL→NL dan disurface saat stage tersebut
+            # direkam (lihat blok ``with recorder.stage("question_rewriting")``
+            # di atas). Block post-hoc copy dari Stage 3 → Stage 1 yang
+            # sebelumnya ada di sini SUDAH DIHAPUS — production sekarang
+            # mirror persis kalibrasi Stage 1.
 
         if detection.is_ambiguous:
             auto_response = await self._try_auto_resolve(
@@ -1228,6 +1480,7 @@ class ChatbotService:
                     ambiguity_type=detection.ambiguity_type or "scope",
                     clarification_question=detection.clarification_question or "",
                     user_response=auto_response,
+                    conversation_history=conversation_history,
                 )
                 unambiguous_question = refine_result.unambiguous_question
 
@@ -1261,6 +1514,7 @@ class ChatbotService:
                     pipeline_result = await self._semantic_pipeline.run_from_prepared(
                         query=unambiguous_question,
                         prepared=prepared,
+                        ablate_active_filter=ablate_active_filter,
                     )
                     _stage.set_output(
                         {
@@ -1381,6 +1635,11 @@ class ChatbotService:
                 user_id=normalized_user_id,
                 session_id=resolved_session_id,
                 metadata=ambiguity_metadata,
+                # Turn ASK clarification (Stage 3 berhenti, no SQL final):
+                # TIDAK ada row baru di ``chat_messages``. Skip update agar
+                # tidak nyangkut ke turn sebelumnya. Pending clarification
+                # tetap dikirim ke UI lewat field ``pending_clarification``.
+                persist_to_chat_message=False,
             )
 
             options_payload = [
@@ -1434,6 +1693,7 @@ class ChatbotService:
             pipeline_result = await self._semantic_pipeline.run_from_prepared(
                 query=standalone_query,
                 prepared=prepared,
+                ablate_active_filter=ablate_active_filter,
             )
             _stage.set_output(
                 {
@@ -1483,6 +1743,30 @@ class ChatbotService:
             explanation=explanation,
             pipeline_trace=pipeline_trace_payload,
         )
+
+        # Inject jawaban final ke working memory sebagai assistant turn agar
+        # turn berikutnya melihat KONTEKS NYATA (bukan placeholder generik).
+        # Tanpa ini, follow-up question seperti "berapa jumlahnya di lokasi
+        # tersebut?" akan kehilangan grounding subject (mis. "pegawai S2")
+        # dan LLM rewriter berhalusinasi ke domain lain. Pakai ``explanation``
+        # (NL summary jawaban) bukan SQL mentah supaya prompt rewriter tetap
+        # bisa di-embed dengan baik secara semantik.
+        if (
+            self._question_rewriting_service is not None
+            and isinstance(explanation, str)
+            and explanation.strip()
+        ):
+            try:
+                self._question_rewriting_service.add_to_working_memory(
+                    user_id=normalized_user_id,
+                    session_id=resolved_session_id,
+                    role="assistant",
+                    content=explanation.strip(),
+                )
+            except Exception:
+                log.exception(
+                    "Gagal menyimpan assistant turn (explanation) ke working memory"
+                )
 
         ambiguity_metadata = {
             "was_ambiguous": False,
