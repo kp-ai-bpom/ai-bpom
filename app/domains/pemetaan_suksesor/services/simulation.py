@@ -1,405 +1,27 @@
 import asyncio
 import json
-import math
-import re
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from typing import Any, Dict, List
 
-from fastapi import Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException, status
 
 from app.core.logger import log
-from app.db.database import get_db
 
-from .core.agent import AgentAdapter, init_agents
-from .dto.request import (
-    KandidatSuksesi,
-    SaveMatchingRequest,
-    SuksesorCreateRequest,
-    SuksesorUpdateRequest,
-)
-from .dto.response import (
+from ..core.agent import AgentAdapter, init_agents
+from ..dto.request import KandidatSIASN
+from ..dto.response import (
     DetailEvaluasi,
     KandidatCard,
     KandidatListData,
     KandidatListResponse,
     KandidatResult,
-    MatchingHistoryDetail,
-    MatchingHistoryDetailResponse,
-    MatchingHistoryListData,
-    MatchingHistoryListResponse,
-    MatchingHistorySaveResponse,
-    MatchingHistorySummary,
     NineBoxData,
     NineBoxItem,
     NineBoxResponse,
-    RekamJejakItem,
-    SertifikasiItem,
     SimulasiDataResponse,
     SimulasiResponse,
-    SkpTahunItem,
-    SuksesorDataResponse,
-    SuksesorDeleteResponse,
-    SuksesorListDataResponse,
-    SuksesorListResponse,
-    SuksesorResponse,
 )
-from .repositories import MatchingHistoryRepository, SuksesorRepository
-
-# ── Module-level Constants & Caches ────────────────────────────────
-
-MAX_CONCURRENT_EVALUATIONS = 5
-_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_EVALUATIONS + 1)
-
-_JABATAN_RULES_PATH = Path(__file__).parent / "dto" / "jabatan_rules.json"
-_CANDIDATES_JSON_PATH = Path(__file__).parent / "dto" / "candidates.json"
-
-_jabatan_rules_cache: List[Dict[str, Any]] | None = None
-_candidates_cache: List[Dict[str, Any]] | None = None
-
-NINE_BOX_DEFINITIONS = {
-    1: {
-        "label": "Kinerja dibawah ekspektasi dan potensi rendah",
-        "kinerja": "Dibawah Ekspektasi",
-        "potensi": "Rendah",
-        "selectable": False,
-    },
-    2: {
-        "label": "Kinerja sesuai ekspektasi dan potensi rendah",
-        "kinerja": "Sesuai Ekspektasi",
-        "potensi": "Rendah",
-        "selectable": False,
-    },
-    3: {
-        "label": "Kinerja dibawah ekspektasi dan potensi menengah",
-        "kinerja": "Dibawah Ekspektasi",
-        "potensi": "Menengah",
-        "selectable": False,
-    },
-    4: {
-        "label": "Kinerja diatas ekspektasi dan potensi rendah",
-        "kinerja": "Diatas Ekspektasi",
-        "potensi": "Rendah",
-        "selectable": False,
-    },
-    5: {
-        "label": "Kinerja sesuai ekspektasi dan potensi menengah",
-        "kinerja": "Sesuai Ekspektasi",
-        "potensi": "Menengah",
-        "selectable": False,
-    },
-    6: {
-        "label": "Kinerja dibawah ekspektasi dan potensi tinggi",
-        "kinerja": "Dibawah Ekspektasi",
-        "potensi": "Tinggi",
-        "selectable": False,
-    },
-    7: {
-        "label": "Kinerja diatas ekspektasi dan potensi menengah",
-        "kinerja": "Diatas Ekspektasi",
-        "potensi": "Menengah",
-        "selectable": True,
-    },
-    8: {
-        "label": "Kinerja sesuai ekspektasi dan potensi tinggi",
-        "kinerja": "Sesuai Ekspektasi",
-        "potensi": "Tinggi",
-        "selectable": True,
-    },
-    9: {
-        "label": "Kinerja diatas ekspektasi dan potensi tinggi",
-        "kinerja": "Diatas Ekspektasi",
-        "potensi": "Tinggi",
-        "selectable": True,
-    },
-}
-
-
-# ── Helpers ───────────────────────────────────────────────────────
-
-
-def _parse_box_number(posisi: str) -> int | None:
-    """Parse box number from posisi_nine_box_talenta string, e.g. 'Kotak 9 (...)' → 9."""
-    if not posisi:
-        return None
-    match = re.search(r"Kotak\s+(\d+)", posisi)
-    return int(match.group(1)) if match else None
-
-
-def _load_candidates() -> List[Dict[str, Any]]:
-    """Load candidates.json with caching."""
-    global _candidates_cache
-    if _candidates_cache is None:
-        try:
-            with open(_CANDIDATES_JSON_PATH, encoding="utf-8") as f:
-                _candidates_cache = json.load(f)
-            assert _candidates_cache is not None
-            log.info(f"📋 Candidates loaded — {len(_candidates_cache)} kandidat")
-        except FileNotFoundError:
-            log.warning("⚠️ candidates.json tidak ditemukan")
-            _candidates_cache = []
-        except json.JSONDecodeError:
-            log.warning("⚠️ candidates.json format tidak valid")
-            _candidates_cache = []
-    assert _candidates_cache is not None
-    return _candidates_cache
-
-
-def _call_agent(agent, prompt: str) -> str:
-    """Call a strands Agent synchronously and return its text output."""
-    try:
-        result = agent(prompt)
-        # strands Agent may return a Result object or a plain string
-        if hasattr(result, "result"):
-            return str(result.result)
-        return str(result)
-    except Exception as exc:
-        log.exception(f"❌ Agent call failed: {exc}")
-        return ""
-
-
-def _extract_json(text: str) -> Any:
-    """Extract the first valid JSON object/array from LLM text output."""
-    # Try the whole text first
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Strip markdown fences
-    if "```json" in text:
-        text = text.split("```json", 1)[1].split("```", 1)[0]
-    elif "```" in text:
-        text = text.split("```", 1)[1].split("```", 1)[0]
-
-    text = text.strip()
-
-    # Find first { or [ and match to end
-    for start_char, end_char in [("{", "}"), ("[", "]")]:
-        start = text.find(start_char)
-        if start != -1:
-            depth = 0
-            for i in range(start, len(text)):
-                if text[i] == start_char:
-                    depth += 1
-                elif text[i] == end_char:
-                    depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
-    return None
-
-
-async def _run_agent_async(agent, prompt: str) -> str:
-    """Run a blocking Agent call in a thread-pool so the event loop stays free."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _call_agent, agent, prompt)
-
-
-def _safe_get(d: Any, *keys, default=None):
-    """Safely traverse nested dicts/lists."""
-    current = d
-    for key in keys:
-        try:
-            current = current[key]
-        except (KeyError, TypeError, IndexError):
-            return default
-    return current
-
-
-# ── CRUD Service ──────────────────────────────────────────────────
-
-
-class SuksesorService:
-    """Service for Suksesor business logic."""
-
-    def __init__(self, repository: SuksesorRepository):
-        self._repo = repository
-
-    async def create(self, data: SuksesorCreateRequest) -> SuksesorResponse:
-        """Create a new Suksesor."""
-        # Check if NIP already exists
-        if await self._repo.exists_by_nip(data.nip):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Suksesor with NIP '{data.nip}' already exists",
-            )
-
-        suksesor = await self._repo.create(data)
-        return SuksesorResponse(
-            message="Suksesor created successfully",
-            data=SuksesorDataResponse.model_validate(suksesor),
-        )
-
-    async def get_by_id(self, suksesor_id: UUID) -> SuksesorResponse:
-        """Get a Suksesor by ID."""
-        suksesor = await self._repo.get_by_id(suksesor_id)
-        if not suksesor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Suksesor with ID '{suksesor_id}' not found",
-            )
-        return SuksesorResponse(
-            message="Suksesor retrieved successfully",
-            data=SuksesorDataResponse.model_validate(suksesor),
-        )
-
-    async def get_by_nip(self, nip: str) -> SuksesorResponse:
-        """Get a Suksesor by NIP."""
-        suksesor = await self._repo.get_by_nip(nip)
-        if not suksesor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Suksesor with NIP '{nip}' not found",
-            )
-        return SuksesorResponse(
-            message="Suksesor retrieved successfully",
-            data=SuksesorDataResponse.model_validate(suksesor),
-        )
-
-    async def get_list(
-        self,
-        page: int = 1,
-        page_size: int = 10,
-        search: Optional[str] = None,
-        is_active: Optional[bool] = None,
-    ) -> SuksesorListResponse:
-        """Get paginated list of Suksesor."""
-        items, total = await self._repo.get_list(
-            page=page, page_size=page_size, search=search, is_active=is_active
-        )
-
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
-
-        return SuksesorListResponse(
-            message="Suksesor list retrieved successfully",
-            data=SuksesorListDataResponse(
-                items=[SuksesorDataResponse.model_validate(item) for item in items],
-                total=total,
-                page=page,
-                page_size=page_size,
-                total_pages=total_pages,
-            ),
-        )
-
-    async def update(
-        self, suksesor_id: UUID, data: SuksesorUpdateRequest
-    ) -> SuksesorResponse:
-        """Update a Suksesor."""
-        # Check if NIP is being updated and already exists
-        if data.nip and await self._repo.exists_by_nip(
-            data.nip, exclude_id=suksesor_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Suksesor with NIP '{data.nip}' already exists",
-            )
-
-        suksesor = await self._repo.update(suksesor_id, data)
-        if not suksesor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Suksesor with ID '{suksesor_id}' not found",
-            )
-        return SuksesorResponse(
-            message="Suksesor updated successfully",
-            data=SuksesorDataResponse.model_validate(suksesor),
-        )
-
-    async def delete(self, suksesor_id: UUID) -> SuksesorDeleteResponse:
-        """Delete a Suksesor (hard delete)."""
-        if not await self._repo.delete(suksesor_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Suksesor with ID '{suksesor_id}' not found",
-            )
-        return SuksesorDeleteResponse(
-            message=f"Suksesor '{suksesor_id}' deleted successfully",
-            data={"id": str(suksesor_id)},
-        )
-
-    async def soft_delete(self, suksesor_id: UUID) -> SuksesorResponse:
-        """Soft delete a Suksesor (set is_active to False)."""
-        suksesor = await self._repo.soft_delete(suksesor_id)
-        if not suksesor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Suksesor with ID '{suksesor_id}' not found",
-            )
-        return SuksesorResponse(
-            message="Suksesor deactivated successfully",
-            data=SuksesorDataResponse.model_validate(suksesor),
-        )
-
-
-def get_suksesor_service(db: AsyncSession = Depends(get_db)) -> SuksesorService:
-    """Dependency injection for SuksesorService."""
-    repository = SuksesorRepository(db)
-    return SuksesorService(repository)
-
-
-# ── Matching History Service ─────────────────────────────────────────
-
-
-class MatchingHistoryService:
-    """Service for matching history business logic."""
-
-    def __init__(self, repository: MatchingHistoryRepository):
-        self._repo = repository
-
-    async def save(self, data: SaveMatchingRequest) -> MatchingHistorySaveResponse:
-        """Save a matching result to history."""
-        history = await self._repo.create(data)
-        return MatchingHistorySaveResponse(
-            message="Riwayat matching berhasil disimpan",
-            data=MatchingHistoryDetail.model_validate(history),
-        )
-
-    async def get_by_id(self, history_id: UUID) -> MatchingHistoryDetailResponse:
-        """Get a matching history by ID."""
-        history = await self._repo.get_by_id(history_id)
-        if not history:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Matching history with ID '{history_id}' not found",
-            )
-        return MatchingHistoryDetailResponse(
-            message="Riwayat matching berhasil diambil",
-            data=MatchingHistoryDetail.model_validate(history),
-        )
-
-    async def get_list(
-        self, page: int = 1, page_size: int = 10
-    ) -> MatchingHistoryListResponse:
-        """Get paginated list of matching history."""
-        items, total = await self._repo.get_list(page=page, page_size=page_size)
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
-        return MatchingHistoryListResponse(
-            message="Daftar riwayat matching berhasil diambil",
-            data=MatchingHistoryListData(
-                items=[MatchingHistorySummary.model_validate(i) for i in items],
-                total=total,
-                page=page,
-                page_size=page_size,
-                total_pages=total_pages,
-            ),
-        )
-
-
-def get_matching_history_service(
-    db: AsyncSession = Depends(get_db),
-) -> MatchingHistoryService:
-    """Dependency injection for MatchingHistoryService."""
-    repository = MatchingHistoryRepository(db)
-    return MatchingHistoryService(repository)
-
-
-# ── Simulation Service ────────────────────────────────────────────
+from ..core.config import settings as local_settings
+from .helpers import _extract_json, _load_candidates, _parse_box_number, _run_agent_async
 
 
 class SimulationService:
@@ -417,13 +39,25 @@ class SimulationService:
 
     def __init__(self, agent_adapter: AgentAdapter):
         self._agents = agent_adapter
+        self._total_input_tokens: int = 0
+        self._total_output_tokens: int = 0
+
+    async def _run_and_track(self, agent, prompt: str) -> str:
+        """Run agent, accumulate token usage, return text output."""
+        result = await _run_agent_async(agent, prompt)
+        if result is None:
+            return ""
+        usage = result.metrics.accumulated_usage
+        self._total_input_tokens += usage.get("inputTokens", 0)
+        self._total_output_tokens += usage.get("outputTokens", 0)
+        return str(result)
 
     # ── Public API ────────────────────────────────────────────────
 
     async def run(
         self,
         target_jabatan: str,
-        kandidat_list: List[KandidatSuksesi],
+        kandidat_list: List[KandidatSIASN],
         top_n: int = 5,
     ) -> SimulasiResponse:
         """
@@ -458,16 +92,13 @@ class SimulationService:
         log.info(f"📋 Tahap 1 selesai — {len(sub_tasks)} sub-tugas")
 
         # ── Tahap 2+3: RETRIEVAL & VALIDATION (per kandidat, paralel) ──
-        # Each concurrent evaluation needs its own Agent instance (Strands doesn't
-        # allow concurrent calls on the same Agent). We use an asyncio.Queue as a
-        # pool — workers borrow an agent, evaluate, then return it.
         agent_queue: asyncio.Queue = asyncio.Queue()
         for a in self._agents.analysis_pool:
             agent_queue.put_nowait(a)
 
-        async def _eval_one(kandidat: KandidatSuksesi) -> Dict:
-            kandidat_id = kandidat.kandidat_suksesi.id
-            kandidat_nama = kandidat.kandidat_suksesi.nama
+        async def _eval_one(kandidat: KandidatSIASN) -> Dict:
+            kandidat_id = kandidat.nip
+            kandidat_nama = kandidat.nama
             agent = await agent_queue.get()
             try:
                 log.info(
@@ -477,7 +108,7 @@ class SimulationService:
                     kandidat, target_jabatan, sub_tasks, agent=agent
                 )
                 evaluation.setdefault(
-                    "jabatan_saat_ini", kandidat.kandidat_suksesi.jabatan_saat_ini
+                    "jabatan_saat_ini", kandidat.jabatan_nama
                 )
                 log.info(f"✅ [paralel] {kandidat_nama} ({kandidat_id}) selesai")
                 return evaluation
@@ -516,6 +147,8 @@ class SimulationService:
                 sub_tugas=sub_tasks,
                 catatan_reviewer=review_note,
             ),
+            input_token=f"{self._total_input_tokens} token",
+            output_token=f"{self._total_output_tokens} token",
         )
 
     # ── Nine-Box & Kandidat Data ────────────────────────────────────
@@ -529,19 +162,18 @@ class SimulationService:
         """
         candidates = _load_candidates()
 
-        # Group candidates by box number
         box_candidates: Dict[int, List[str]] = {i: [] for i in range(1, 10)}
         for c in candidates:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num and 1 <= box_num <= 9:
-                nama = c.get("kandidat_suksesi", {}).get("nama", "")
+                nama = c.get("nama", "")
                 if nama:
                     box_candidates[box_num].append(nama)
 
         boxes = []
         for i in range(1, 10):
-            defn = NINE_BOX_DEFINITIONS[i]
+            defn = local_settings.NINE_BOX_DEFINITIONS[i]
             boxes.append(
                 NineBoxItem(
                     box_number=i,
@@ -563,11 +195,10 @@ class SimulationService:
     def get_kandidat_by_boxes(boxes: List[int]) -> KandidatListResponse:
         """
         Mengembalikan kandidat yang berada di box-box terpilih,
-        lengkap dengan ringkasan untuk kartu UI.
+        lengkap dengan ringkasan untuk kartu UI (format SIASN).
         """
         candidates = _load_candidates()
 
-        # Validate box numbers
         valid_boxes = [b for b in boxes if 1 <= b <= 9]
         if not valid_boxes:
             return KandidatListResponse(
@@ -580,50 +211,31 @@ class SimulationService:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num in valid_boxes:
-                profil = c.get("kandidat_suksesi", {})
-
-                rekam_jejak = [
-                    RekamJejakItem(
-                        periode=r.get("periode", ""),
-                        jabatan=r.get("jabatan", ""),
-                        durasi_tahun=r.get("durasi_tahun", 0),
-                        deskripsi_tugas_dan_fungsi=r.get(
-                            "deskripsi_tugas_dan_fungsi", ""
-                        ),
-                    )
-                    for r in c.get("rekam_jejak", [])
-                ]
-
-                sertifikasi = [
-                    SertifikasiItem(
-                        nama_sertifikasi=s.get("nama_sertifikasi", ""),
-                        tahun=s.get("tahun", 0),
-                        keterangan=s.get("keterangan", ""),
-                    )
-                    for s in c.get("sertifikasi", [])
-                ]
-
-                skp_raw = c.get("skp", {})
-                skp = {
-                    k: SkpTahunItem(
-                        rating_hasil_kerja=v.get("rating_hasil_kerja", ""),
-                        rating_perilaku_kerja=v.get("rating_perilaku_kerja", ""),
-                        keterangan=v.get("keterangan", ""),
-                    )
-                    for k, v in skp_raw.items()
-                }
-
                 filtered.append(
                     KandidatCard(
-                        id=profil.get("id", ""),
-                        nama=profil.get("nama", ""),
-                        jabatan_saat_ini=profil.get("jabatan_saat_ini", ""),
-                        unit_kerja=profil.get("unit_kerja", ""),
-                        box_number=box_num,
-                        rekam_jejak=rekam_jejak,
-                        sertifikasi=sertifikasi,
-                        skp=skp,
+                        nip=c.get("nip", ""),
+                        nama=c.get("nama", ""),
+                        nama_lengkap=c.get("nama_lengkap", ""),
+                        jabatan_nama=c.get("jabatan_nama", ""),
+                        jabatan_terakhir=c.get("jabatan_terakhir", ""),
+                        fungsi_jabatan=c.get("fungsi_jabatan", []),
+                        riwayat_jabatan=c.get("riwayat_jabatan", []),
+                        riwayat_pendidikan=c.get("riwayat_pendidikan", []),
+                        nilai_potensi=c.get("nilai_potensi"),
+                        nilai_mansoskul=c.get("nilai_mansoskul"),
+                        nilai_kinerja=c.get("nilai_kinerja"),
+                        nilai_kinerja_label=c.get("nilai_kinerja_label"),
+                        masa_kerja=c.get("masa_kerja"),
+                        diklat_pim_level=c.get("diklat_pim_level"),
+                        pengalaman_struktural_tahun=c.get("pengalaman_struktural_tahun"),
+                        current_eselon_id=c.get("current_eselon_id"),
+                        target_eselon_id=c.get("target_eselon_id"),
+                        recommendation_label=c.get("recommendation_label"),
+                        recommendation_type=c.get("recommendation_type"),
+                        is_eligible=c.get("is_eligible"),
+                        rhk=c.get("rhk", []),
                         posisi_nine_box_talenta=posisi,
+                        box_number=box_num,
                     )
                 )
 
@@ -639,62 +251,60 @@ class SimulationService:
     # ── Rules Loader (hardcoded — nanti diganti Hybrid RAG) ─────────
 
     @staticmethod
+    def _load_all_jabatan_rules() -> List[Dict]:
+        """
+        Load semua aturan jabatan dari folder jabatan_rules/.
+        Setiap file JSON berisi data satu jabatan (deskripsi + persyaratan).
+        """
+        import app.domains.pemetaan_suksesor.core.config as _c
+
+        if _c._jabatan_rules_cache is not None:
+            assert _c._jabatan_rules_cache is not None
+            return _c._jabatan_rules_cache
+
+        rules_dir = local_settings.JABATAN_RULES_DIR
+        if not rules_dir.is_dir():
+            log.warning(f"⚠️ Folder jabatan_rules tidak ditemukan: {rules_dir}")
+            _c._jabatan_rules_cache = []
+            return []
+
+        entries: List[Dict] = []
+        for json_file in sorted(rules_dir.glob("*.json")):
+            try:
+                with open(json_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and "deskripsi_jabatan" in data:
+                    entries.append(data)
+                else:
+                    log.warning(f"⚠️ {json_file.name}: format tidak valid (tanpa deskripsi_jabatan)")
+            except json.JSONDecodeError:
+                log.warning(f"⚠️ {json_file.name}: JSON tidak valid")
+
+        _c._jabatan_rules_cache = entries
+        log.info(f"📋 Jabatan rules loaded — {len(entries)} posisi dari {rules_dir}")
+        return entries
+
+    @staticmethod
     def _load_jabatan_rules(target_jabatan: str) -> Dict | None:
         """
-        Load aturan jabatan dari jabatan_rules.json.
+        Cari aturan jabatan berdasarkan nama jabatan.
         Mengembalikan seluruh data (deskripsi + persyaratan) jika ditemukan.
-        Nanti diganti dengan Hybrid RAG (GraphRAG + VectorRAG).
         """
-        global _jabatan_rules_cache
-        if _jabatan_rules_cache is None:
-            try:
-                with open(_JABATAN_RULES_PATH, encoding="utf-8") as f:
-                    raw = json.load(f)
-                # Normalisasi: simpan sebagai list of rules
-                if "deskripsi_jabatan" in raw:
-                    # Format single-jabatan → bungkus jadi list
-                    _jabatan_rules_cache = [raw]
-                elif isinstance(raw, list):
-                    # Format multi-jabatan
-                    _jabatan_rules_cache = raw
-                else:
-                    _jabatan_rules_cache = []
-                log.info(
-                    f"📋 Jabatan rules loaded — {len(_jabatan_rules_cache)} posisi"
-                )
-            except FileNotFoundError:
-                log.warning("⚠️ jabatan_rules.json tidak ditemukan")
-                _jabatan_rules_cache = []
-                return None
-            except json.JSONDecodeError:
-                log.warning("⚠️ jabatan_rules.json format tidak valid")
-                _jabatan_rules_cache = []
-                return None
-
-        # Assert to help type checker understand _jabatan_rules_cache is not None
-        assert _jabatan_rules_cache is not None
-
-        # Search by nama_jabatan (case-insensitive)
+        all_rules = SimulationService._load_all_jabatan_rules()
         normalized = target_jabatan.lower().strip()
-        for entry in _jabatan_rules_cache:
+        for entry in all_rules:
             nama = entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
             if nama.lower().strip() == normalized:
                 return entry
-
         return None
 
     @staticmethod
     def list_available_jabatan() -> List[str]:
-        """Return daftar nama jabatan yang tersedia di jabatan_rules.json."""
-        global _jabatan_rules_cache
-        if _jabatan_rules_cache is None:
-            # Trigger load
-            SimulationService._load_jabatan_rules("")
-
-        assert _jabatan_rules_cache is not None
+        """Return daftar nama jabatan yang tersedia di folder jabatan_rules."""
+        all_rules = SimulationService._load_all_jabatan_rules()
         return [
             entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
-            for entry in _jabatan_rules_cache
+            for entry in all_rules
             if entry.get("deskripsi_jabatan", {}).get("nama_jabatan")
         ]
 
@@ -706,11 +316,9 @@ class SimulationService:
         Sub-tugas di-generate oleh agent, bukan hardcoded.
         Source: (1) jabatan_rules.json → (2) LLM knowledge jika tidak ada rules
         """
-        # Load rules jika ada
         rules = self._load_jabatan_rules(target_jabatan)
 
         if rules:
-            # Berikan rules lengkap ke orchestrator untuk di-decompose
             prompt = (
                 f"Berikut adalah aturan jabatan target suksesi:\n\n"
                 f"```json\n{json.dumps(rules, ensure_ascii=False, indent=2)}\n```\n\n"
@@ -725,7 +333,6 @@ class SimulationService:
                 f"📋 Tahap 1 (agent+rules): mendekomposisi '{target_jabatan}' dari jabatan_rules.json"
             )
         else:
-            # Tidak ada rules — agent gunakan pengetahuan LLM
             prompt = (
                 f"Jabatan target suksesi: {target_jabatan}\n\n"
                 "Tidak ada aturan spesifik yang tersedia di database. "
@@ -737,13 +344,12 @@ class SimulationService:
                 f"📋 Tahap 1 (agent-only): mendekomposisi '{target_jabatan}' dari pengetahuan LLM"
             )
 
-        raw = await _run_agent_async(self._agents.orchestrator, prompt)
+        raw = await self._run_and_track(self._agents.orchestrator, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict) and "sub_tasks" in parsed:
             return parsed["sub_tasks"]
 
-        # Fallback terakhir
         log.warning("⚠️ Fallback sub-tasks digunakan (rules & agent gagal)")
         return [
             {
@@ -782,7 +388,7 @@ class SimulationService:
 
     async def _evaluate_candidate(
         self,
-        kandidat: KandidatSuksesi,
+        kandidat: KandidatSIASN,
         target_jabatan: str,
         sub_tasks: List[Dict],
         agent: Any = None,
@@ -791,7 +397,6 @@ class SimulationService:
         eval_agent = agent or self._agents.analysis
         kandidat_json = kandidat.model_dump(mode="json")
 
-        # Sertakan konteks jabatan dari rules jika ada
         rules = self._load_jabatan_rules(target_jabatan)
         context_extra = ""
         if rules:
@@ -802,7 +407,6 @@ class SimulationService:
                 for i, f in enumerate(fungsi, 1):
                     context_extra += f"  {i}. {f}\n"
 
-            # Kompetensi spesifik dari persyaratan
             pengalaman = rules.get("persyaratan", {}).get("pengalaman_bidang_tugas", {})
             kompetensi = pengalaman.get("kompetensi_spesifik", [])
             if kompetensi:
@@ -810,7 +414,6 @@ class SimulationService:
                 for i, k in enumerate(kompetensi, 1):
                     context_extra += f"  {i}. {k}\n"
 
-            # Kumpulkan kata kunci dari sub_tasks yang di-generate orchestrator
             all_keywords = []
             for st in sub_tasks:
                 for kw in st.get("kata_kunci_pencocokan", []):
@@ -832,19 +435,18 @@ class SimulationService:
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Analysis Agent."
         )
 
-        raw = await _run_agent_async(eval_agent, prompt)
+        raw = await self._run_and_track(eval_agent, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
-            parsed.setdefault("id_kandidat", kandidat.kandidat_suksesi.id)
-            parsed.setdefault("nama", kandidat.kandidat_suksesi.nama)
+            parsed.setdefault("id_kandidat", kandidat.nip)
+            parsed.setdefault("nama", kandidat.nama)
             return parsed
 
-        # Fallback: basic result if parsing fails
-        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.kandidat_suksesi.id}")
+        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.nip}")
         return {
-            "id_kandidat": kandidat.kandidat_suksesi.id,
-            "nama": kandidat.kandidat_suksesi.nama,
+            "id_kandidat": kandidat.nip,
+            "nama": kandidat.nama,
             "l_eval": {"keputusan": "REJECT", "alasan": "Gagal memproses evaluasi"},
             "c_eval": {
                 "keputusan": "REJECT",
@@ -895,13 +497,12 @@ class SimulationService:
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Synthesis Agent."
         )
 
-        raw = await _run_agent_async(self._agents.synthesis, prompt)
+        raw = await self._run_and_track(self._agents.synthesis, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict) and "peringkat" in parsed:
             return parsed["peringkat"][:top_n]
 
-        # Fallback: simple scoring from acceptances
         log.warning("⚠️ Fallback scoring digunakan (agent output tidak terparse)")
         ranked = sorted(
             evaluation_results,
@@ -916,7 +517,7 @@ class SimulationService:
                     "rank": i,
                     "id_kandidat": eval_data.get("id_kandidat", f"UNKNOWN-{i}"),
                     "nama": eval_data.get("nama", "Tidak diketahui"),
-                    "skor_kesesuaian": acc * 50,  # rough mapping
+                    "skor_kesesuaian": acc * 50,
                     "kategori_kesiapan": "SUKSESOR"
                     if acc == 2
                     else "POTENSIAL"
@@ -944,7 +545,7 @@ class SimulationService:
             "Output WAJIB JSON sesuai format Reviewer Agent."
         )
 
-        raw = await _run_agent_async(self._agents.reviewer, prompt)
+        raw = await self._run_and_track(self._agents.reviewer, prompt)
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
@@ -967,7 +568,6 @@ class SimulationService:
             kid = entry.get("id_kandidat", "")
             source_eval = eval_by_id.get(kid, {})
 
-            # Merge: prefer synthesis output, fall back to evaluation result
             detail_raw = entry.get("detail_evaluasi") or source_eval.get(
                 "detail_evaluasi"
             )
@@ -980,7 +580,6 @@ class SimulationService:
                     for k, v in detail_raw.items()
                 }
 
-            # Derive acceptances from L-Eval + C-Eval if synthesis omitted it
             acceptances = entry.get("acceptances")
             if acceptances is None:
                 l_eval = source_eval.get("l_eval", {})
@@ -992,7 +591,6 @@ class SimulationService:
                     acc += 1
                 acceptances = acc
 
-            # Derive confidence_level from acceptances if synthesis omitted it
             confidence = entry.get("confidence_level", "")
             if not confidence:
                 acc = int(acceptances)
@@ -1000,15 +598,12 @@ class SimulationService:
                     "Tinggi" if acc == 2 else "Sedang" if acc == 1 else "Rendah"
                 )
 
-            # Derive kesimpulan from acceptances if synthesis omitted it
             kesimpulan = entry.get("kesimpulan", "")
             if not kesimpulan:
                 kesimpulan = "Clear" if int(acceptances) == 2 else "Review Needed"
 
-            # Alasan penilaian: from synthesis, or build from detail_evaluasi
             alasan = entry.get("alasan_penilaian", "")
             if not alasan and detail_models:
-                # Fallback: compose reason from detail_evaluasi
                 parts = []
                 for aspek, detail in detail_models.items():
                     parts.append(f"{aspek}: {detail.status} — {detail.keterangan}")

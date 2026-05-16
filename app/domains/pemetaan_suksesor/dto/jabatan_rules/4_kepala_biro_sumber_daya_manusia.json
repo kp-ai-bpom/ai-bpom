@@ -1,0 +1,48 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Biro Sumber Daya Manusia",
+    "atasan_langsung": "Sekretaris Utama",
+    "tugas": "melaksanakan koordinasi dan pengelolaan sumber daya manusia.",
+    "fungsi": [
+      "penyiapan koordinasi dan perencanaan sumber daya manusia",
+      "penyiapan koordinasi dan pengelolaan karier sumber daya manusia",
+      "penyiapan koordinasi dan pengelolaan kinerja dan disiplin sumber daya manusia",
+      "penyiapan koordinasi dan pengelolaan kesejahteraan, gaji, dan tunjangan",
+      "penyiapan koordinasi dan pengelolaan data dan informasi sumber daya manusia",
+      "pelaksanaan urusan tata usaha dan rumah tangga biro"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "Usia paling tinggi 56 (lima puluh enam) tahun ketika pelantikan",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Pembina Tk. I, IV/b untuk jabatan Kepala Biro",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Sarjana (S1) diutamakan bagi peserta yang memiliki kualifikasi pendidikan Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Administrator (Eselon III) atau Jabatan Fungsional Ahli Madya paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat III, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi dan Administrator",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Mengembangkan strategi internalisasi kebijakan manajemen ASN yang tepat sesuai kondisi.",
+        "Menyusun perangkat norma standar prosedur instrumen penerapan manajemen Sumber Daya Manusia Aparatur Sipil Negara",
+        "Mampu menyusun norma standar, prosedur, pedoman penerapan sistem merit",
+        "Mampu mengkoordinasikan penyelenggaraan sistem informasi kepegawaian, dan penerapannya dalam penyelenggaraan manajemen ASN di instansinya",
+        "Perencanaan",
+        "Sistem merit",
+        "Manajemen talenta",
+        "Sistem informasi dan digitalisasi",
+        "Manajemen ASN",
+        "Kode Etik Kode Perilaku"
+      ]
+    }
+  }
+}

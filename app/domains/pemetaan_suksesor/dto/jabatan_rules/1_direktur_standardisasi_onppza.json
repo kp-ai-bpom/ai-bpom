@@ -1,0 +1,44 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Direktur Standardisasi Obat, Narkotika, Psikotropika, Prekursor, dan Zat Adiktif",
+    "atasan_langsung": "Deputi Bidang Pengawasan Obat, Narkotika, Psikotropika, Prekursor, dan Zat Adiktif",
+    "tugas": "melaksanakan penyusunan dan pelaksanaan kebijakan, penyusunan norma, standar, prosedur, kriteria, pelaksanaan bimbingan teknis dan supervisi, serta pemantauan, evaluasi, dan pelaporan di bidang standardisasi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif.",
+    "fungsi": [
+      "penyiapan penyusunan kebijakan di bidang standardisasi keamanan, khasiat, mutu, informasi produk, produksi dan distribusi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif",
+      "penyiapan pelaksanaan kebijakan di bidang standardisasi keamanan, khasiat, mutu, informasi produk, produksi dan distribusi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif",
+      "penyiapan penyusunan norma, standar, prosedur, dan kriteria di bidang standardisasi keamanan, khasiat, mutu, informasi produk, produksi dan distribusi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif",
+      "pemberian bimbingan teknis dan supervisi di bidang standardisasi keamanan, khasiat, mutu, informasi produk, produksi dan distribusi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif",
+      "pelaksanaan pemantauan, evaluasi, dan pelaporan di bidang standardisasi keamanan, khasiat, mutu, informasi produk, produksi dan distribusi obat, bahan obat, narkotika, psikotropika, prekursor, dan zat adiktif; dan",
+      "pelaksanaan urusan tata operasional direktorat"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "Usia paling tinggi 56 (lima puluh enam) tahun ketika pelantikan",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Pembina Tk. I, IV/b untuk jabatan Direktur",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Sarjana (S1) diutamakan bagi peserta yang memiliki kualifikasi pendidikan Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Administrator (Eselon III) atau Jabatan Fungsional Ahli Madya paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat III, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi dan Administrator",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Memiliki pengalaman jabatan dalam bidang tugas yang terkait dengan bidang tugas dan fungsi jabatan yang akan diduduki secara kumulatif paling singkat selama 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Mengevaluasi strategi advokasi kebijakan Pengawasan Obat dan Makanan",
+        "Mengevaluasi dan menyusun rekomendasi perbaikan prosedur penyusunan  norma, standar, prosedur, dan kriteria",
+        "Mengevaluasi rekomendasi dan tindak lanjut hasil pemantauan dan evaluasi implementasi norma, standar/persyaratan prosedur dan kriteria",
+        "Mengevaluasi rekomendasi dan tindak lanjut hasil Kajian di Bidang Pengawasan Obat dan Makanan",
+        "Mengevaluasi rekomendasi tindak lanjut pelaksanaan pengumpulan informasi/data keamanan mutu, manfaat Sediaan Farmasi dan Makanan",
+        "Mengevaluasi rekomendasi tindak lanjut penanganan isu keamanan Obat dan Makanan"
+      ]
+    }
+  }
+}

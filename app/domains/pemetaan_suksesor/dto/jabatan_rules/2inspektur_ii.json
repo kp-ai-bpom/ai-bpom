@@ -1,0 +1,44 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Inspektur II",
+    "atasan_langsung": "Inspektur Utama",
+    "tugas": "melaksanakan penyusunan kebijakan teknis dan pelaksanaan pengawasan intern serta penyusunan laporan hasil pengawasan di lingkup satuan kerja dan wilayah tertentu.",
+    "fungsi": [
+      "penyusunan kebijakan teknis pengawasan intern di lingkup satuan kerja dan wilayah tugas Inspektorat II",
+      "pelaksanaan pengawasan intern terhadap kinerja dan keuangan melalui audit, reviu, evaluasi, pemantauan, dan kegiatan pengawasan lainnya di lingkup satuan kerja dan wilayah tugas Inspektorat II",
+      "penyusunan laporan hasil pengawasan di lingkup satuan kerja dan wilayah tugas Inspektorat II",
+      "pemantauan dan evaluasi pelaksanaan penjaminan kualitas tata kelola, manajemen risiko, dan pengendalian intern satuan kerja dan wilayah tugas Inspektorat II",
+      "koordinasi pengawasan intern di lingkup satuan kerja dan wilayah tugas Inspektorat II",
+      "pelaksanaan urusan tata usaha Inspektorat II"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Pegawai Negeri Sipil",
+    "usia_maksimal": "56 (lima puluh enam) tahun ketika pelantikan",
+    "pangkat_golongan": "Sekurang-kurangnya Pembina Tk. I, IV/b untuk jabatan Direktur",
+    "kualifikasi_pendidikan": "Paling rendah Sarjana (S1) diutamakan bagi peserta yang memiliki kualifikasi pendidikan Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Administrator (Eselon III) atau Jabatan Fungsional Ahli Madya paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat III, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi dan Administrator",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Paling singkat selama 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Mampu memberikan masukan kepada pimpinan organisasi, mampu menjadi katalisator perubahan, dan menerapkan perencanaan audit tahunan berbasis risiko yang sesuai dengan standar",
+        "Mampu mengembangkan kebijakan penerapan standar audit dan mengembangkan serta memelihara QAIP",
+        "Menyakinkan penerapan Tata Kelola, Manajemen Risiko, dan Pengendalian Intern organisasi dalam kegiatan audit, kesesuaian metodologi audit intern dengan Tata Kelola, Manajemen risiko, dan Pengendalian Intern, dan mengevaluasi Tata Kelola, Manajemen Risiko, dan Pengendalian Intern organisasi, memberikan pandangan yang komprehensif mengenai profil risiko organisasi saat ini dan perkembangannya",
+        "Mampu mengendalikan mutu pelaksanaan audit intern",
+        "Mampu mengembangkan suatu lingkungan yang dapat menerima perubahan dan menghargai perbaikan yang berkelanjutan di dalam aktivitas audit intern, dan mempertimbangkan pendekatan-pendekatan yang baru dan inovatif untuk memenuhi kebutuhan pemangku kepentingan",
+        "Mampu memberikan masukan kepada pimpinan organisasi, mampu menjadi katalisator perubahan, dan menerapkan perencanaan audit tahunan berbasis risiko yang sesuai dengan standar"
+      ]
+    }
+  }
+}
