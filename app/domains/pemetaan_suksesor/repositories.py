@@ -215,7 +215,7 @@ class JabatanRulesRepository:
         self._db = db
 
     async def upsert(self, slug: str, nama_jabatan: str, atasan_langsung: str, data: dict) -> JabatanRules:
-        """Insert or update a jabatan_rules record by slug."""
+        """Insert or update a jabatan_rules record by slug. Caller is responsible for committing."""
         existing = await self._get_by_slug(slug)
         if existing:
             existing.nama_jabatan = nama_jabatan
