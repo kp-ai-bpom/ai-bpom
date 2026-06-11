@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.pemetaan_suksesor.models import IngestionLog, MatchingHistory, Suksesor
+from app.domains.pemetaan_suksesor.models import IngestionLog, JabatanRules, MatchingHistory, Suksesor
 
 from .dto.request import (
     SaveMatchingRequest,
@@ -206,3 +206,33 @@ class IngestionLogRepository:
             )
             self._db.add(log_entry)
             return log_entry
+
+
+class JabatanRulesRepository:
+    """Repository untuk JabatanRules — profil jabatan terstruktur."""
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+
+    async def upsert(self, slug: str, nama_jabatan: str, atasan_langsung: str, data: dict) -> JabatanRules:
+        """Insert or update a jabatan_rules record by slug."""
+        existing = await self._get_by_slug(slug)
+        if existing:
+            existing.nama_jabatan = nama_jabatan
+            existing.atasan_langsung = atasan_langsung
+            existing.data = data
+            return existing
+        else:
+            record = JabatanRules(
+                slug=slug,
+                nama_jabatan=nama_jabatan,
+                atasan_langsung=atasan_langsung,
+                data=data,
+            )
+            self._db.add(record)
+            return record
+
+    async def _get_by_slug(self, slug: str) -> Optional[JabatanRules]:
+        stmt = select(JabatanRules).where(JabatanRules.slug == slug)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
