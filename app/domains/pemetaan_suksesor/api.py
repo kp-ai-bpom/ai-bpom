@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 from enum import Enum
-from typing import Annotated, Callable, List, Optional
+from typing import Annotated, Callable, List
 from uuid import UUID
 
 from fastapi import (
@@ -18,20 +18,14 @@ from fastapi import (
     status,
 )
 
-from .dto.pipeline import AgentEvaluateRequest, AgentName, AgentRunRequest
+from .dto.pipeline import AgentEvaluateRequest, AgentName, PlannerRequest
 from .dto.request import (
-    IngestRequest,
     KandidatSIASN,
     SaveMatchingRequest,
     SimulasiRequest,
-    SuksesorCreateRequest,
-    SuksesorUpdateRequest,
 )
 from .dto.response import (
     AgentResponse,
-    IngestLogDetailResponse,
-    IngestLogListResponse,
-    IngestResponse,
     JobAcceptedResponse,
     JobStatusResponse,
     KandidatListResponse,
@@ -40,26 +34,18 @@ from .dto.response import (
     MatchingHistorySaveResponse,
     NineBoxResponse,
     SimulasiResponse,
-    SuksesorDeleteResponse,
-    SuksesorListResponse,
-    SuksesorResponse,
-    UploadResponse,
 )
 from .services import (
     AgentPipelineService,
-    IngestionService,
     JobService,
     MatchingHistoryService,
     PipelineService,
     SimulationService,
-    SuksesorService,
     get_agent_pipeline_service,
-    get_ingestion_service,
     get_job_service,
     get_matching_history_service,
     get_pipeline_service,
     get_simulation_service,
-    get_suksesor_service,
 )
 
 router = APIRouter()
@@ -82,13 +68,15 @@ def _validate_file_extensions(files: List[UploadFile], allowed_exts: set) -> Non
     """Validate that all uploaded files have allowed extensions."""
     for f in files:
         if not f.filename:
-            raise HTTPException(status_code=400, detail="All files must have a filename")
+            raise HTTPException(
+                status_code=400, detail="All files must have a filename"
+            )
         ext = os.path.splitext(f.filename)[1].lower()
         if ext not in allowed_exts:
             raise HTTPException(
                 status_code=400,
                 detail=f"File '{f.filename}' has unsupported extension '{ext}'. "
-                       f"Allowed: {', '.join(sorted(allowed_exts))}",
+                f"Allowed: {', '.join(sorted(allowed_exts))}",
             )
 
 
@@ -142,114 +130,6 @@ async def _start_pipeline_job(
         job_id=job_id,
         message=f"{job_name.replace('_', ' ').title()} pipeline started",
     )
-
-
-# ── CRUD Endpoints ────────────────────────────────────────────────
-
-
-@router.post(
-    "/",
-    response_model=SuksesorResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new Suksesor",
-    description="Create a new Suksesor (calon penerus jabatan) entry.",
-)
-async def create_suksesor(
-    data: SuksesorCreateRequest,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorResponse:
-    """Create a new Suksesor."""
-    return await service.create(data)
-
-
-@router.get(
-    "/",
-    response_model=SuksesorListResponse,
-    summary="Get list of Suksesor",
-    description="Get paginated list of Suksesor with optional filters.",
-)
-async def list_suksesor(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, description="Search by nama or nip"),
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorListResponse:
-    """Get paginated list of Suksesor."""
-    return await service.get_list(
-        page=page, page_size=page_size, search=search, is_active=is_active
-    )
-
-
-@router.get(
-    "/nip/{nip}",
-    response_model=SuksesorResponse,
-    summary="Get Suksesor by NIP",
-    description="Get a specific Suksesor by their NIP (Nomor Induk Pegawai).",
-)
-async def get_suksesor_by_nip(
-    nip: str,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorResponse:
-    """Get a Suksesor by NIP."""
-    return await service.get_by_nip(nip)
-
-
-@router.get(
-    "/{suksesor_id}",
-    response_model=SuksesorResponse,
-    summary="Get Suksesor by ID",
-    description="Get a specific Suksesor by their UUID.",
-)
-async def get_suksesor_by_id(
-    suksesor_id: UUID,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorResponse:
-    """Get a Suksesor by ID."""
-    return await service.get_by_id(suksesor_id)
-
-
-@router.put(
-    "/{suksesor_id}",
-    response_model=SuksesorResponse,
-    summary="Update a Suksesor",
-    description="Update an existing Suksesor by ID.",
-)
-async def update_suksesor(
-    suksesor_id: UUID,
-    data: SuksesorUpdateRequest,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorResponse:
-    """Update a Suksesor."""
-    return await service.update(suksesor_id, data)
-
-
-@router.delete(
-    "/{suksesor_id}",
-    response_model=SuksesorDeleteResponse,
-    summary="Delete a Suksesor",
-    description="Delete a Suksesor by ID (hard delete).",
-)
-async def delete_suksesor(
-    suksesor_id: UUID,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorDeleteResponse:
-    """Delete a Suksesor."""
-    return await service.delete(suksesor_id)
-
-
-@router.patch(
-    "/{suksesor_id}/deactivate",
-    response_model=SuksesorResponse,
-    summary="Soft delete a Suksesor",
-    description="Deactivate a Suksesor by setting is_active to False.",
-)
-async def deactivate_suksesor(
-    suksesor_id: UUID,
-    service: SuksesorService = Depends(get_suksesor_service),
-) -> SuksesorResponse:
-    """Soft delete (deactivate) a Suksesor."""
-    return await service.soft_delete(suksesor_id)
 
 
 # ── Match (Simulation) Endpoints ─────────────────────────────────
@@ -418,76 +298,6 @@ async def get_matching_history_detail(
     return await service.get_by_id(history_id)
 
 
-# ── Ingestion Endpoints ─────────────────────────────────────────────
-
-
-@router.post(
-    "/ingest",
-    response_model=IngestResponse,
-    summary="Trigger smart ingestion from MinIO",
-)
-async def trigger_ingestion(
-    request: IngestRequest,
-    service: IngestionService = Depends(get_ingestion_service),
-):
-    """Trigger smart ingestion of documents from MinIO bucket."""
-    return await service.ingest(
-        document_names=request.document_names,
-        force_reingest=request.force_reingest,
-    )
-
-
-@router.get(
-    "/ingest/status",
-    response_model=IngestLogListResponse,
-    summary="List ingestion logs",
-)
-async def list_ingestion_logs(
-    offset: int = 0,
-    limit: int = 50,
-    service: IngestionService = Depends(get_ingestion_service),
-):
-    """List all ingestion log entries."""
-    return await service.list_logs(offset=offset, limit=limit)
-
-
-@router.get(
-    "/ingest/{log_id}",
-    response_model=IngestLogDetailResponse,
-    summary="Get ingestion log detail",
-)
-async def get_ingestion_log(
-    log_id: int, service: IngestionService = Depends(get_ingestion_service)
-):
-    """Get details of a specific ingestion log."""
-    result = await service.get_log(log_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Ingestion log not found")
-    return result
-
-
-@router.post(
-    "/ingest/upload",
-    response_model=UploadResponse,
-    summary="Upload document and auto-ingest",
-)
-async def upload_and_ingest(
-    file: UploadFile = File(...),
-    force_reingest: bool = False,
-    service: IngestionService = Depends(get_ingestion_service),
-):
-    """Upload an XLSX document to MinIO and automatically ingest it."""
-    if not file.filename or not file.filename.endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Only .xlsx files are accepted")
-
-    data = await file.read()
-    return await service.upload_and_ingest(
-        filename=file.filename,
-        data=data,
-        force_reingest=force_reingest,
-    )
-
-
 # ── Job Endpoints ──────────────────────────────────────────────────
 
 
@@ -508,28 +318,6 @@ async def get_job_status(
 
 
 @router.post(
-    "/vectorrag/jabatan",
-    response_model=JobAcceptedResponse,
-    summary="Run VectorRAG Jabatan Pipeline",
-    description="Upload XLSX files to chunk, embed, and ingest into pgvector.",
-)
-async def vectorrag_jabatan(
-    background_tasks: BackgroundTasks,
-    files: Annotated[list[UploadFile], File(description="XLSX files with jabatan data")] = ...,
-    job_service: JobService = Depends(get_job_service),
-    pipeline_service: PipelineService = Depends(get_pipeline_service),
-):
-    return await _start_pipeline_job(
-        background_tasks,
-        job_service,
-        "vectorrag_jabatan",
-        pipeline_service.run_vectorrag_jabatan,
-        files,
-        _VECTORRAG_JABATAN_EXTS,
-    )
-
-
-@router.post(
     "/knowledge-graph",
     response_model=JobAcceptedResponse,
     summary="Ingest Knowledge Graph",
@@ -540,8 +328,12 @@ async def vectorrag_jabatan(
 )
 async def ingest_knowledge_graph(
     background_tasks: BackgroundTasks,
-    type: KnowledgeGraphType = Query(..., description="Tipe dokumen: jabatan (XLSX) atau regulasi (PDF)"),
-    files: Annotated[list[UploadFile], File(description="Dokumen yang akan diingest")] = ...,
+    type: KnowledgeGraphType = Query(
+        ..., description="Tipe dokumen: jabatan (XLSX) atau regulasi (PDF)"
+    ),
+    files: Annotated[
+        list[UploadFile], File(description="Dokumen yang akan diingest")
+    ] = ...,
     job_service: JobService = Depends(get_job_service),
     pipeline_service: PipelineService = Depends(get_pipeline_service),
 ):
@@ -575,7 +367,7 @@ async def ingest_knowledge_graph(
 )
 async def ingest_profil_jabatan(
     background_tasks: BackgroundTasks,
-    files: Annotated[list[UploadFile], File(description="File XLSX profil jabatan")] = ...,
+    files: List[UploadFile] = File(..., description="File XLSX profil jabatan"),
     job_service: JobService = Depends(get_job_service),
     pipeline_service: PipelineService = Depends(get_pipeline_service),
 ):
@@ -593,32 +385,36 @@ async def ingest_profil_jabatan(
 
 
 @router.post(
-    "/agents/{agent_name}", response_model=AgentResponse, summary="Run Single Agent"
+    "/agents/planner",
+    response_model=AgentResponse,
+    summary="Run Planner Agent",
+    description=(
+        "Menjalankan Planner Agent XAI-MENTARI. "
+        "Menerima jabatan target dan daftar kandidat, "
+        "lalu menghasilkan XAI Blueprint berisi profil jabatan, "
+        "aturan penilaian dari Knowledge Graph, dan paket data per-kandidat "
+        "untuk diproses oleh Analysis Agent."
+    ),
 )
-async def run_single_agent(
-    agent_name: AgentName,
-    payload: AgentRunRequest,
+async def run_planner_agent(
+    payload: PlannerRequest,
     agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
-):
-    """Run a named agent with input_text and/or input_json."""
+) -> AgentResponse:
+    """Run the Planner Agent with target jabatan and candidate list."""
     try:
-        result = await agent_service.run_agent(
-            agent_name=agent_name,
-            input_text=payload.input_text,
-            input_json=payload.input_json,
+        result = await agent_service.run_planner(
+            input_json=payload.model_dump(),
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Agent {agent_name.value} failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent execution failed: {e}")
+        logger.error("Planner agent failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Planner agent failed: {e}")
     return result
 
 
 @router.post(
     "/agents/{agent_name}/evaluate",
     response_model=AgentResponse,
-    summary="Evaluate Single Agent",
+    summary="Evaluate Agent Output",
 )
 async def evaluate_single_agent(
     agent_name: AgentName,
