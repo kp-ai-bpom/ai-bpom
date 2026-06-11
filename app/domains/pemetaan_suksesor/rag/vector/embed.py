@@ -8,7 +8,10 @@ _client: AsyncOpenAI | None = None
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
+        client_kwargs: dict = {
+            "api_key": settings.OPENAI_API_KEY,
+            "default_headers": {"User-Agent": "ai-bpom/1.0"},
+        }
         if settings.AI_BASE_URL:
             client_kwargs["base_url"] = settings.AI_BASE_URL
         _client = AsyncOpenAI(**client_kwargs)

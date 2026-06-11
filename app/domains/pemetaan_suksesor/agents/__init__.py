@@ -1,0 +1,1 @@
+from .llm_adapter import create_strands_model as create_strands_model
