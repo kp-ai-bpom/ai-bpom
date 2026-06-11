@@ -68,3 +68,19 @@ class IngestionLog(Base):
     chunk_count = Column(Integer, default=0)
     entity_count = Column(Integer, default=0)
     ingested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class JabatanRules(Base):
+    """Profil jabatan terstruktur dengan 14 field persyaratan."""
+
+    __tablename__ = "jabatan_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    nama_jabatan = Column(String(255), nullable=False, index=True)
+    atasan_langsung = Column(String(255), nullable=False, server_default="")
+    data = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<JabatanRules(slug={self.slug}, nama={self.nama_jabatan})>"

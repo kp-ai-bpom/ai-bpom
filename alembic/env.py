@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.db.database import Base
 
 # Import all models to register with Base.metadata for Alembic autogenerate
-from app.domains.pemetaan_suksesor.models import IngestionLog, MatchingHistory, Suksesor
+from app.domains.pemetaan_suksesor.models import IngestionLog, JabatanRules, MatchingHistory, Suksesor
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -25,8 +25,9 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url with the one from settings.
-# This env uses async_engine_from_config, so keep the async driver URL.
-config.set_main_option("sqlalchemy.url", settings.POSTGRES_URI)
+# Convert asyncpg URL to psycopg2 (sync) for Alembic compatibility.
+_sync_url = settings.POSTGRES_URI.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+config.set_main_option("sqlalchemy.url", _sync_url)
 
 
 def run_migrations_offline() -> None:
