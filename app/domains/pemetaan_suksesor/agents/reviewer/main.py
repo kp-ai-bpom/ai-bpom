@@ -1,6 +1,5 @@
 from strands import Agent
 from .prompt import REVIEWER_SYSTEM_PROMPT
-from .schema import ReviewerOutput
 from ..llm_adapter import create_strands_model
 
 def create_reviewer_agent() -> Agent:
@@ -11,5 +10,4 @@ def create_reviewer_agent() -> Agent:
         model=model,
         tools=[],
         system_prompt=REVIEWER_SYSTEM_PROMPT,
-        output_schema=ReviewerOutput,
     )
