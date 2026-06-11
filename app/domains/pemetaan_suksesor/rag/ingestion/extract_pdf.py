@@ -2,8 +2,8 @@ import asyncio
 import io
 import re
 
-import httpx
 import pdfplumber
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.core.logger import log
@@ -35,9 +35,20 @@ Input:
 Output:
 """
 
-def _base_url() -> str:
-    url = settings.AI_BASE_URL or "https://api.openai.com/v1/"
-    return url.rstrip("/")
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        client_kwargs: dict = {
+            "api_key": settings.OPENAI_API_KEY,
+            "default_headers": {"User-Agent": "ai-bpom/1.0"},
+        }
+        if settings.AI_BASE_URL:
+            client_kwargs["base_url"] = settings.AI_BASE_URL
+        _client = AsyncOpenAI(**client_kwargs)
+    return _client
 
 
 def parse_pdf_bytes(data: bytes, filename: str) -> list[dict]:
@@ -71,29 +82,17 @@ def parse_pdf_bytes(data: bytes, filename: str) -> list[dict]:
 
 
 async def extract_graph_elements_pdf(chunk_text: str) -> str:
-    payload = {
-        "model": settings.AI_THINK_MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT_PDF},
-            {"role": "user", "content": f"Input:\n{chunk_text}\nOutput:"},
-        ],
-        "temperature": 0.0,
-        "stream": False,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    client = _get_client()
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{_base_url()}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"] or ""
+        response = await client.chat.completions.create(
+            model=settings.AI_THINK_MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_PDF},
+                {"role": "user", "content": f"Input:\n{chunk_text}\nOutput:"},
+            ],
+            temperature=0.0,
+        )
+        return response.choices[0].message.content or ""
     except Exception as e:
         log.exception(f"❌ PDF graph extraction failed: {e}")
         return ""
