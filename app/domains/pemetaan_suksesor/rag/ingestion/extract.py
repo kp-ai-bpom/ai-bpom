@@ -1,7 +1,7 @@
 import asyncio
 import re
 
-from openai import AsyncOpenAI
+import httpx
 
 from app.core.config import settings
 from app.core.logger import log
@@ -25,35 +25,40 @@ Given a text document and a list of entity types, identify all entities and rela
 
 ---Real Data---
 Input:
-{{{{input_text}}}}
+{{input_text}}
 Output:
 """
 
-_client: AsyncOpenAI | None = None
 
-
-def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
-        if settings.AI_BASE_URL:
-            client_kwargs["base_url"] = settings.AI_BASE_URL
-        _client = AsyncOpenAI(**client_kwargs)
-    return _client
+def _base_url() -> str:
+    url = settings.AI_BASE_URL or "https://api.openai.com/v1/"
+    return url.rstrip("/")
 
 
 async def extract_graph_elements(chunk_text: str) -> str:
-    client = _get_client()
+    payload = {
+        "model": settings.AI_THINK_MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Input:\n{chunk_text}\nOutput:"},
+        ],
+        "temperature": 0.0,
+        "stream": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
     try:
-        response = await client.chat.completions.create(
-            model=settings.AI_THINK_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Input:\n{chunk_text}\nOutput:"},
-            ],
-            temperature=0.0,
-        )
-        return response.choices[0].message.content or ""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{_base_url()}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"] or ""
     except Exception as e:
         log.exception(f"❌ Graph extraction failed: {e}")
         return ""
@@ -76,7 +81,7 @@ def filter_kg_output(text: str) -> tuple[list[tuple[str, str, str]], list[tuple[
     return entities, relationships
 
 
-async def extract_from_chunks(chunks: list[dict], max_concurrent: int = 5) -> tuple[list[tuple], list[tuple]]:
+async def extract_from_chunks(chunks: list[dict], max_concurrent: int = 1) -> tuple[list[tuple], list[tuple]]:
     semaphore = asyncio.Semaphore(max_concurrent)
 
     async def _extract_one(chunk_text: str):
