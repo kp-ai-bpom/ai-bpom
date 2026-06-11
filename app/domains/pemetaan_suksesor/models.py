@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.db.database import Base
 
@@ -78,7 +78,7 @@ class JabatanRules(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     nama_jabatan = Column(String(255), nullable=False, index=True)
-    atasan_langsung = Column(String(255), nullable=False, server_default="")
+    atasan_langsung = Column(String(255), nullable=False, server_default=text("''"))
     data = Column(JSONB, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

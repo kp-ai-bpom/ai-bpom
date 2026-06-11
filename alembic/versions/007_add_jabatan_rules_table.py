@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
 revision: str = '007'
-down_revision: Union[str, None] = '006'
+down_revision: Union[str, Sequence[str], None] = '006'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('slug', sa.String(length=255), nullable=False),
         sa.Column('nama_jabatan', sa.String(length=255), nullable=False),
-        sa.Column('atasan_langsung', sa.String(length=255), server_default='', nullable=False),
+        sa.Column('atasan_langsung', sa.String(length=255), server_default=sa.text("''"), nullable=False),
         sa.Column('data', JSONB(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id'),
