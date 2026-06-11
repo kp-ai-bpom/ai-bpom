@@ -1,8 +1,24 @@
-from typing import Optional
+import asyncio
+import logging
+import os
+import shutil
+import tempfile
+from enum import Enum
+from typing import Callable, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status, UploadFile, File
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 
+from .dto.pipeline import AgentEvaluateRequest, AgentName, AgentRunRequest
 from .dto.request import (
     IngestRequest,
     KandidatSIASN,
@@ -12,9 +28,12 @@ from .dto.request import (
     SuksesorUpdateRequest,
 )
 from .dto.response import (
+    AgentResponse,
     IngestLogDetailResponse,
     IngestLogListResponse,
     IngestResponse,
+    JobAcceptedResponse,
+    JobStatusResponse,
     KandidatListResponse,
     MatchingHistoryDetailResponse,
     MatchingHistoryListResponse,
@@ -27,17 +46,102 @@ from .dto.response import (
     UploadResponse,
 )
 from .services import (
+    AgentPipelineService,
+    IngestionService,
+    JobService,
     MatchingHistoryService,
+    PipelineService,
     SimulationService,
     SuksesorService,
+    get_agent_pipeline_service,
+    get_ingestion_service,
+    get_job_service,
     get_matching_history_service,
+    get_pipeline_service,
     get_simulation_service,
     get_suksesor_service,
-    get_ingestion_service,
-    _load_candidates,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+class KnowledgeGraphType(str, Enum):
+    jabatan = "jabatan"
+    regulasi = "regulasi"
+
+
+# Allowed file extensions per pipeline type
+_KNOWLEDGE_GRAPH_JABATAN_EXTS = {".xlsx"}
+_KNOWLEDGE_GRAPH_REGULASI_EXTS = {".pdf"}
+_VECTORRAG_JABATAN_EXTS = {".xlsx"}
+_PROFIL_JABATAN_EXTS = {".xlsx"}
+
+
+def _validate_file_extensions(files: List[UploadFile], allowed_exts: set) -> None:
+    """Validate that all uploaded files have allowed extensions."""
+    for f in files:
+        if not f.filename:
+            raise HTTPException(status_code=400, detail="All files must have a filename")
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in allowed_exts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{f.filename}' has unsupported extension '{ext}'. "
+                       f"Allowed: {', '.join(sorted(allowed_exts))}",
+            )
+
+
+async def _run_and_cleanup(
+    func: Callable, job_id: str, file_paths: List[str], temp_dir: str, *args
+):
+    try:
+        await func(job_id, file_paths, *args)
+    finally:
+        await asyncio.to_thread(shutil.rmtree, temp_dir, ignore_errors=True)
+
+
+async def _save_uploads_to_temp(files: List[UploadFile]) -> tuple[List[str], str]:
+    """Save UploadFile contents to a temp directory synchronously.
+
+    Returns (file_paths, temp_dir). Caller is responsible for cleaning up temp_dir.
+    """
+    temp_dir = tempfile.mkdtemp()
+    file_paths: List[str] = []
+    try:
+        for file in files:
+            file_path = os.path.join(temp_dir, file.filename)
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+            file_paths.append(file_path)
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    return file_paths, temp_dir
+
+
+async def _start_pipeline_job(
+    background_tasks: BackgroundTasks,
+    job_service: JobService,
+    job_name: str,
+    pipeline_func: Callable,
+    files: List[UploadFile],
+    allowed_exts: set,
+) -> JobAcceptedResponse:
+    """Helper to validate, save, create job, and schedule background pipeline task."""
+    _validate_file_extensions(files, allowed_exts)
+
+    file_paths, temp_dir = await _save_uploads_to_temp(files)
+
+    job_id = job_service.create_job(job_name)
+    background_tasks.add_task(
+        _run_and_cleanup, pipeline_func, job_id, file_paths, temp_dir
+    )
+    return JobAcceptedResponse(
+        job_id=job_id,
+        message=f"{job_name.replace('_', ' ').title()} pipeline started",
+    )
 
 
 # ── CRUD Endpoints ────────────────────────────────────────────────
@@ -251,7 +355,7 @@ async def simulasi_pemetaan_suksesor_sampel(
     service: SimulationService = Depends(get_simulation_service),
 ) -> SimulasiResponse:
     """Run simulation using built-in sample candidate data (10 candidates)."""
-    raw_candidates = _load_candidates()
+    raw_candidates = service.load_candidates()
     kandidat_list = [KandidatSIASN.model_validate(c) for c in raw_candidates]
 
     return await service.run(
@@ -317,45 +421,215 @@ async def get_matching_history_detail(
 # ── Ingestion Endpoints ─────────────────────────────────────────────
 
 
-@router.post("/ingest", response_model=IngestResponse, summary="Trigger smart ingestion from MinIO")
-async def trigger_ingestion(request: IngestRequest):
+@router.post(
+    "/ingest",
+    response_model=IngestResponse,
+    summary="Trigger smart ingestion from MinIO",
+)
+async def trigger_ingestion(
+    request: IngestRequest,
+    service: IngestionService = Depends(get_ingestion_service),
+):
     """Trigger smart ingestion of documents from MinIO bucket."""
-    service = get_ingestion_service()
     return await service.ingest(
         document_names=request.document_names,
         force_reingest=request.force_reingest,
     )
 
 
-@router.get("/ingest/status", response_model=IngestLogListResponse, summary="List ingestion logs")
-async def list_ingestion_logs(offset: int = 0, limit: int = 50):
+@router.get(
+    "/ingest/status",
+    response_model=IngestLogListResponse,
+    summary="List ingestion logs",
+)
+async def list_ingestion_logs(
+    offset: int = 0,
+    limit: int = 50,
+    service: IngestionService = Depends(get_ingestion_service),
+):
     """List all ingestion log entries."""
-    service = get_ingestion_service()
     return await service.list_logs(offset=offset, limit=limit)
 
 
-@router.get("/ingest/{log_id}", response_model=IngestLogDetailResponse, summary="Get ingestion log detail")
-async def get_ingestion_log(log_id: int):
+@router.get(
+    "/ingest/{log_id}",
+    response_model=IngestLogDetailResponse,
+    summary="Get ingestion log detail",
+)
+async def get_ingestion_log(
+    log_id: int, service: IngestionService = Depends(get_ingestion_service)
+):
     """Get details of a specific ingestion log."""
-    from fastapi import HTTPException
-    service = get_ingestion_service()
     result = await service.get_log(log_id)
     if not result:
         raise HTTPException(status_code=404, detail="Ingestion log not found")
     return result
 
 
-@router.post("/ingest/upload", response_model=UploadResponse, summary="Upload document and auto-ingest")
-async def upload_and_ingest(file: UploadFile = File(...), force_reingest: bool = False):
+@router.post(
+    "/ingest/upload",
+    response_model=UploadResponse,
+    summary="Upload document and auto-ingest",
+)
+async def upload_and_ingest(
+    file: UploadFile = File(...),
+    force_reingest: bool = False,
+    service: IngestionService = Depends(get_ingestion_service),
+):
     """Upload an XLSX document to MinIO and automatically ingest it."""
-    from fastapi import HTTPException
     if not file.filename or not file.filename.endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Only .xlsx files are accepted")
 
     data = await file.read()
-    service = get_ingestion_service()
     return await service.upload_and_ingest(
         filename=file.filename,
         data=data,
         force_reingest=force_reingest,
     )
+
+
+# ── Job Endpoints ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/jobs/{job_id}", response_model=JobStatusResponse, summary="Get Job Status"
+)
+async def get_job_status(
+    job_id: str,
+    job_service: JobService = Depends(get_job_service),
+):
+    job = job_service.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+# ── Pipeline Endpoints ─────────────────────────────────────────────
+
+
+@router.post(
+    "/vectorrag/jabatan",
+    response_model=JobAcceptedResponse,
+    summary="Run VectorRAG Jabatan Pipeline",
+    description="Upload XLSX files to chunk, embed, and ingest into pgvector.",
+)
+async def vectorrag_jabatan(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(..., description="XLSX files with jabatan data"),
+    job_service: JobService = Depends(get_job_service),
+    pipeline_service: PipelineService = Depends(get_pipeline_service),
+):
+    return await _start_pipeline_job(
+        background_tasks,
+        job_service,
+        "vectorrag_jabatan",
+        pipeline_service.run_vectorrag_jabatan,
+        files,
+        _VECTORRAG_JABATAN_EXTS,
+    )
+
+
+@router.post(
+    "/knowledge-graph",
+    response_model=JobAcceptedResponse,
+    summary="Ingest Knowledge Graph",
+    description=(
+        "Upload dokumen ke Neo4j Knowledge Graph. "
+        "Gunakan type=jabatan untuk file XLSX, type=regulasi untuk file PDF."
+    ),
+)
+async def ingest_knowledge_graph(
+    background_tasks: BackgroundTasks,
+    type: KnowledgeGraphType = Query(..., description="Tipe dokumen: jabatan (XLSX) atau regulasi (PDF)"),
+    files: List[UploadFile] = File(..., description="Dokumen yang akan diingest"),
+    job_service: JobService = Depends(get_job_service),
+    pipeline_service: PipelineService = Depends(get_pipeline_service),
+):
+    if type == KnowledgeGraphType.jabatan:
+        return await _start_pipeline_job(
+            background_tasks,
+            job_service,
+            "knowledge_graph_jabatan",
+            pipeline_service.run_knowledge_graph_jabatan,
+            files,
+            _KNOWLEDGE_GRAPH_JABATAN_EXTS,
+        )
+    return await _start_pipeline_job(
+        background_tasks,
+        job_service,
+        "knowledge_graph_regulasi",
+        pipeline_service.run_knowledge_graph_regulasi,
+        files,
+        _KNOWLEDGE_GRAPH_REGULASI_EXTS,
+    )
+
+
+@router.post(
+    "/profil-jabatan",
+    response_model=JobAcceptedResponse,
+    summary="Ingest Profil Jabatan",
+    description=(
+        "Upload file XLSX profil jabatan untuk diingest ke tabel jabatan_rules PostgreSQL "
+        "dengan kategorisasi 14 field persyaratan (deterministik, tanpa LLM)."
+    ),
+)
+async def ingest_profil_jabatan(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(..., description="File XLSX profil jabatan"),
+    job_service: JobService = Depends(get_job_service),
+    pipeline_service: PipelineService = Depends(get_pipeline_service),
+):
+    return await _start_pipeline_job(
+        background_tasks,
+        job_service,
+        "profil_jabatan",
+        pipeline_service.run_profil_jabatan,
+        files,
+        _PROFIL_JABATAN_EXTS,
+    )
+
+
+# ── Agent Endpoints ────────────────────────────────────────────────
+
+
+@router.post(
+    "/agents/{agent_name}", response_model=AgentResponse, summary="Run Single Agent"
+)
+async def run_single_agent(
+    agent_name: AgentName,
+    payload: AgentRunRequest,
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+):
+    """Run a named agent with input_text and/or input_json."""
+    try:
+        result = await agent_service.run_agent(
+            agent_name=agent_name,
+            input_text=payload.input_text,
+            input_json=payload.input_json,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Agent {agent_name.value} failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Agent execution failed: {e}")
+    return result
+
+
+@router.post(
+    "/agents/{agent_name}/evaluate",
+    response_model=AgentResponse,
+    summary="Evaluate Single Agent",
+)
+async def evaluate_single_agent(
+    agent_name: AgentName,
+    payload: AgentEvaluateRequest,
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+):
+    """Evaluate an agent's output quality. Currently a placeholder."""
+    # TODO: Implement evaluator agent integration
+    return {
+        "agent_name": f"{agent_name.value}_evaluator",
+        "message": f"Evaluator for {agent_name.value} is not yet implemented",
+        "output": None,
+        "usage": None,
+    }
