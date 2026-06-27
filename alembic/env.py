@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.db.database import Base
 
 # Import all models to register with Base.metadata for Alembic autogenerate
+from app.domains.penilaian_makalah.models import EvaluationResult, IngestionLog
 from app.domains.pemetaan_suksesor.models import MatchingHistory, Suksesor
 
 # this is the Alembic Config object, which provides
