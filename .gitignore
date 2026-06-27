@@ -28,3 +28,10 @@ docs
 
 # macOS
 .DS_Store
+
+
+
+
+# penilaian-makalah 
+rag_storage/
+streamlit_dev2.py
