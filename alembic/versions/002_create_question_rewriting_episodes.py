@@ -37,7 +37,7 @@ def upgrade() -> None:
             what_worked TEXT,
             what_to_avoid TEXT,
             source VARCHAR(100) DEFAULT 'chatbot_api',
-            embedding VECTOR
+            embedding VECTOR(1536)
         )
         """
     )
@@ -53,7 +53,7 @@ def upgrade() -> None:
         ("what_worked", "TEXT"),
         ("what_to_avoid", "TEXT"),
         ("source", "VARCHAR(100) DEFAULT 'chatbot_api'"),
-        ("embedding", "VECTOR"),
+        ("embedding", "VECTOR(1536)"),
     ]
 
     for column_name, column_type in columns:
