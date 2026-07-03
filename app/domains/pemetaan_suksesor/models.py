@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.db.database import Base
 
@@ -48,9 +48,40 @@ class MatchingHistory(Base):
     top_kandidat = Column(JSONB, nullable=False)
     sub_tugas = Column(JSONB, nullable=True)
     catatan_reviewer = Column(Text, nullable=True)
+    pipeline_result = Column(JSONB, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     def __repr__(self):
         return f"<MatchingHistory(target_jabatan={self.target_jabatan})>"
+
+
+class IngestionLog(Base):
+    """Model untuk log proses ingestion dokumen RAG."""
+
+    __tablename__ = "ingestion_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    filename = Column(String(255), unique=True, nullable=False, index=True)
+    content_hash = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False)
+    chunk_count = Column(Integer, default=0)
+    entity_count = Column(Integer, default=0)
+    ingested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class JabatanRules(Base):
+    """Profil jabatan terstruktur dengan 14 field persyaratan."""
+
+    __tablename__ = "jabatan_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    nama_jabatan = Column(String(255), nullable=False, index=True)
+    atasan_langsung = Column(String(255), nullable=False, server_default=text("''"))
+    data = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<JabatanRules(slug={self.slug}, nama={self.nama_jabatan})>"

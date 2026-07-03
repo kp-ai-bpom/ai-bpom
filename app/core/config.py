@@ -64,6 +64,25 @@ class Settings(BaseSettings):
         os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7")
     )
 
+    # ── Neo4j ──────────────────────────────────────────────────────
+    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
+    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "")
+
+    # ── MinIO ──────────────────────────────────────────────────────
+    MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+    MINIO_ACCESS_KEY: str = os.getenv("MINIO_ACCESS_KEY", "admin")
+    MINIO_SECRET_KEY: str = os.getenv("MINIO_SECRET_KEY", "password123")
+    MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "bpom-documents")
+    MINIO_SECURE: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+    # ── RAG ────────────────────────────────────────────────────────
+    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
+    RAG_EMBEDDING_DIMENSIONS: int = int(os.getenv("RAG_EMBEDDING_DIMENSIONS", "1536"))
+    RAG_VECTOR_TOP_K: int = int(os.getenv("RAG_VECTOR_TOP_K", "5"))
+    RAG_GRAPH_DEPTH: int = int(os.getenv("RAG_GRAPH_DEPTH", "1"))
+    RAG_GRAPH_LIMIT: int = int(os.getenv("RAG_GRAPH_LIMIT", "50"))
+
     @field_validator("POSTGRES_URI", mode="before")
     @classmethod
     def _normalize_postgres_uri(cls, value: str) -> str:
