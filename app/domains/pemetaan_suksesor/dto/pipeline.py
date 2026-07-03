@@ -61,3 +61,54 @@ class PlannerRequest(BaseModel):
     candidates: list[CandidateInput] = Field(
         description="Daftar kandidat yang akan dievaluasi"
     )
+
+
+# ── Analysis ────────────────────────────────────────────────────────────
+
+class AnalysisRequest(BaseModel):
+    """Input untuk menjalankan Analysis Agent secara mandiri.
+
+    Membutuhkan output dari Planner Agent (blueprint) dan data input asli.
+    Biasanya diperoleh dari hasil job /agents/planner.
+    """
+    blueprint: Any = Field(
+        description="Output XAI Blueprint dari Planner Agent (JSON dict)"
+    )
+    input: Any = Field(
+        description="Data input asli: {target, candidates, ...} dari request Planner"
+    )
+
+
+# ── Synthesis ──────────────────────────────────────────────────────────
+
+class SynthesisRequest(BaseModel):
+    """Input untuk menjalankan Synthesis Agent secara mandiri.
+
+    Membutuhkan output dari Analysis Agent dan blueprint context dari Planner.
+    Biasanya diperoleh dari hasil job /agents/analysis dan /agents/planner.
+    """
+    xai_justification_report: Any = Field(
+        description="Output XAI Justification Report dari Analysis Agent (JSON dict)"
+    )
+    blueprint_context: Any = Field(
+        description="Output XAI Blueprint dari Planner Agent untuk referensi aturan_penilaian (JSON dict)"
+    )
+
+
+# ── Reviewer ────────────────────────────────────────────────────────────
+
+class ReviewerRequest(BaseModel):
+    """Input untuk menjalankan Reviewer Agent secara mandiri.
+
+    Membutuhkan output dari ketiga agent sebelumnya.
+    Biasanya diperoleh dari hasil job /agents/synthesis, /agents/analysis, /agents/planner.
+    """
+    synthesis_report: Any = Field(
+        description="Output Synthesis Report dari Synthesis Agent (JSON dict)"
+    )
+    analysis_report: Any = Field(
+        description="Output XAI Justification Report dari Analysis Agent (JSON dict)"
+    )
+    planner_blueprint: Any = Field(
+        description="Output XAI Blueprint dari Planner Agent (JSON dict)"
+    )

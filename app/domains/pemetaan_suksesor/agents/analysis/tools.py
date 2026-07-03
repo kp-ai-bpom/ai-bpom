@@ -5,7 +5,11 @@ from pgvector.asyncpg import register_vector
 from strands import tool
 
 from app.core.config import settings
-from app.domains.pemetaan_suksesor.rag.vector.embed import embed_single
+from app.domains.pemetaan_suksesor.rag.vector.embed import (
+    cache_embedding,
+    embed_single,
+    get_cached_embedding,
+)
 
 
 @tool
@@ -21,7 +25,11 @@ def search_vector_rag(query: str, top_k: int = 5) -> str:
     """
 
     async def _search():
-        query_embedding = await embed_single(query)
+        # Check embedding cache first (pre-computed by orchestrator)
+        query_embedding = get_cached_embedding(query)
+        if query_embedding is None:
+            query_embedding = await embed_single(query)
+            cache_embedding(query, query_embedding)
 
         dsn = settings.POSTGRES_URI
         if dsn.startswith("postgresql+asyncpg://"):

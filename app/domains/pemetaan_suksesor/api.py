@@ -15,10 +15,19 @@ from fastapi import (
     HTTPException,
     Query,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 
-from .dto.pipeline import AgentEvaluateRequest, AgentName, PlannerRequest
+from .dto.pipeline import (
+    AgentEvaluateRequest,
+    AgentName,
+    AnalysisRequest,
+    PlannerRequest,
+    ReviewerRequest,
+    SynthesisRequest,
+)
 from .dto.request import (
     KandidatSIASN,
     SaveMatchingRequest,
@@ -314,6 +323,47 @@ async def get_job_status(
     return job
 
 
+@router.websocket(
+    "/jobs/{job_id}/ws",
+    name="Job Status WebSocket",
+)
+async def job_status_websocket(
+    websocket: WebSocket,
+    job_id: str,
+    job_service: JobService = Depends(get_job_service),
+):
+    """WebSocket endpoint for real-time job status updates.
+
+    Connects to a specific job and receives push notifications whenever
+    the job status changes (in_progress → completed/failed). Also sends
+    the current job state immediately on connection so the client doesn't
+    need to poll REST first.
+
+    Message format (JSON): same as JobStatusResponse.
+    The connection stays open until the job reaches a terminal state
+    (completed/failed) or the client disconnects.
+    """
+    # Reject early if job doesn't exist
+    if not job_service.get_job(job_id):
+        await websocket.close(code=4404, reason="Job not found")
+        return
+
+    await job_service.connect(job_id, websocket)
+    try:
+        # Keep connection alive until client disconnects or job is terminal
+        while True:
+            # Wait for client messages (ping/pong keep-alive)
+            # Client can also send "close" to gracefully disconnect
+            try:
+                data = await websocket.receive_text()
+                if data.lower() in ("close", "disconnect"):
+                    break
+            except WebSocketDisconnect:
+                break
+    finally:
+        job_service.disconnect(job_id, websocket)
+
+
 # ── Pipeline Endpoints ─────────────────────────────────────────────
 
 
@@ -386,29 +436,166 @@ async def ingest_profil_jabatan(
 
 @router.post(
     "/agents/planner",
-    response_model=AgentResponse,
-    summary="Run Planner Agent",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run Planner Agent (Background Job)",
     description=(
-        "Menjalankan Planner Agent XAI-MENTARI. "
-        "Menerima jabatan target dan daftar kandidat, "
-        "lalu menghasilkan XAI Blueprint berisi profil jabatan, "
-        "aturan penilaian dari Knowledge Graph, dan paket data per-kandidat "
-        "untuk diproses oleh Analysis Agent."
+        "Menjalankan Planner Agent XAI-MENTARI sebagai background job. "
+        "Menerima jabatan target dan daftar kandidat, langsung mengembalikan job_id. "
+        "Poll status di GET /jobs/{job_id} — saat completed, field result berisi "
+        "XAI Blueprint (profil jabatan, aturan KG, paket data per-kandidat)."
     ),
 )
 async def run_planner_agent(
+    background_tasks: BackgroundTasks,
     payload: PlannerRequest,
+    job_service: JobService = Depends(get_job_service),
     agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
-) -> AgentResponse:
-    """Run the Planner Agent with target jabatan and candidate list."""
-    try:
-        result = await agent_service.run_planner(
-            input_json=payload.model_dump(),
-        )
-    except Exception as e:
-        logger.error("Planner agent failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Planner agent failed: {e}")
-    return result
+) -> JobAcceptedResponse:
+    """Start Planner Agent as a background job; returns job_id immediately."""
+    job_id = job_service.create_job("planner_agent")
+    background_tasks.add_task(
+        agent_service.run_agent_job,
+        AgentName.PLANNER,
+        payload.model_dump(),
+        job_id,
+        job_service,
+    )
+    return JobAcceptedResponse(job_id=job_id, message="Planner agent started")
+
+
+@router.post(
+    "/agents/analysis",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run Analysis Agent (Background Job)",
+    description=(
+        "Menjalankan Analysis Agent XAI-MENTARI sebagai background job. "
+        "Menerima blueprint dari Planner Agent dan data input asli, "
+        "langsung mengembalikan job_id. "
+        "Poll status di GET /jobs/{job_id} — saat completed, field result berisi "
+        "XAI Justification Report (mining results, explainability metrics, per-kandidat)."
+    ),
+)
+async def run_analysis_agent(
+    background_tasks: BackgroundTasks,
+    payload: AnalysisRequest,
+    job_service: JobService = Depends(get_job_service),
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+) -> JobAcceptedResponse:
+    """Start Analysis Agent as a background job; returns job_id immediately."""
+    job_id = job_service.create_job("analysis_agent")
+    input_json = {"blueprint": payload.blueprint, "input": payload.input}
+    background_tasks.add_task(
+        agent_service.run_agent_job,
+        AgentName.ANALYSIS,
+        input_json,
+        job_id,
+        job_service,
+    )
+    return JobAcceptedResponse(job_id=job_id, message="Analysis agent started")
+
+
+@router.post(
+    "/agents/synthesis",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run Synthesis Agent (Background Job)",
+    description=(
+        "Menjalankan Synthesis Agent XAI-MENTARI sebagai background job. "
+        "Menerima XAI Justification Report dari Analysis Agent dan blueprint context "
+        "dari Planner Agent, langsung mengembalikan job_id. "
+        "Poll status di GET /jobs/{job_id} — saat completed, field result berisi "
+        "Synthesis Report (comparison matrix, systemic gaps, regulatory compliance, "
+        "executive summary)."
+    ),
+)
+async def run_synthesis_agent(
+    background_tasks: BackgroundTasks,
+    payload: SynthesisRequest,
+    job_service: JobService = Depends(get_job_service),
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+) -> JobAcceptedResponse:
+    """Start Synthesis Agent as a background job; returns job_id immediately."""
+    job_id = job_service.create_job("synthesis_agent")
+    input_json = {
+        "xai_justification_report": payload.xai_justification_report,
+        "blueprint_context": payload.blueprint_context,
+    }
+    background_tasks.add_task(
+        agent_service.run_agent_job,
+        AgentName.SYNTHESIS,
+        input_json,
+        job_id,
+        job_service,
+    )
+    return JobAcceptedResponse(job_id=job_id, message="Synthesis agent started")
+
+
+@router.post(
+    "/agents/reviewer",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run Reviewer Agent (Background Job)",
+    description=(
+        "Menjalankan Reviewer Agent XAI-MENTARI sebagai background job. "
+        "Menerima Synthesis Report, Analysis Report, dan Planner Blueprint, "
+        "langsung mengembalikan job_id. "
+        "Poll status di GET /jobs/{job_id} — saat completed, field result berisi "
+        "Final XAI Report (validated findings, consistency checks, executive verdict)."
+    ),
+)
+async def run_reviewer_agent(
+    background_tasks: BackgroundTasks,
+    payload: ReviewerRequest,
+    job_service: JobService = Depends(get_job_service),
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+) -> JobAcceptedResponse:
+    """Start Reviewer Agent as a background job; returns job_id immediately."""
+    job_id = job_service.create_job("reviewer_agent")
+    input_json = {
+        "synthesis_report": payload.synthesis_report,
+        "analysis_report": payload.analysis_report,
+        "planner_blueprint": payload.planner_blueprint,
+    }
+    background_tasks.add_task(
+        agent_service.run_agent_job,
+        AgentName.REVIEWER,
+        input_json,
+        job_id,
+        job_service,
+    )
+    return JobAcceptedResponse(job_id=job_id, message="Reviewer agent started")
+
+
+@router.post(
+    "/agents/pipeline",
+    response_model=JobAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run Full XAI-MENTARI Pipeline (Background Job)",
+    description=(
+        "Menjalankan pipeline lengkap XAI-MENTARI sebagai background job: "
+        "Planner → Embedding Pre-compute → Analysis → Synthesis → Reviewer. "
+        "Menerima jabatan target dan daftar kandidat, langsung mengembalikan job_id. "
+        "Poll status di GET /jobs/{job_id} — saat completed, field result berisi "
+        "output dari seluruh tahap pipeline (planner, analysis, synthesis, reviewer)."
+    ),
+)
+async def run_full_pipeline(
+    background_tasks: BackgroundTasks,
+    payload: PlannerRequest,
+    job_service: JobService = Depends(get_job_service),
+    agent_service: AgentPipelineService = Depends(get_agent_pipeline_service),
+) -> JobAcceptedResponse:
+    """Start full XAI-MENTARI pipeline as a background job; returns job_id immediately."""
+    job_id = job_service.create_job("full_pipeline")
+    background_tasks.add_task(
+        agent_service.run_full_pipeline,
+        payload.model_dump(),
+        job_id,
+        job_service,
+    )
+    return JobAcceptedResponse(job_id=job_id, message="Full XAI-MENTARI pipeline started")
 
 
 @router.post(

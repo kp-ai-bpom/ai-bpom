@@ -161,13 +161,18 @@ class SimulationService:
     # ── Nine-Box & Kandidat Data ────────────────────────────────────
 
     @staticmethod
+    def load_candidates() -> List[Dict]:
+        """Wrapper for _load_candidates helper."""
+        return _load_candidates()
+
+    @staticmethod
     def get_nine_box_data() -> NineBoxResponse:
         """
         Mengembalikan data nine-box talenta grid.
         Setiap box berisi: label, kinerja, potensi, selectable flag,
         jumlah kandidat, dan daftar nama kandidat (untuk tooltip).
         """
-        candidates = _load_candidates()
+        candidates = SimulationService.load_candidates()
 
         box_candidates: Dict[int, List[str]] = {i: [] for i in range(1, 10)}
         for c in candidates:
@@ -204,13 +209,13 @@ class SimulationService:
         Mengembalikan kandidat yang berada di box-box terpilih,
         lengkap dengan ringkasan untuk kartu UI (format SIASN).
         """
-        candidates = _load_candidates()
+        candidates = SimulationService.load_candidates()
 
         valid_boxes = [b for b in boxes if 1 <= b <= 9]
         if not valid_boxes:
             return KandidatListResponse(
                 message="Tidak ada box valid yang dipilih",
-                data=KandidatListData(total=0, filtered_boxes=valid_boxes, kandidat=[]),
+                data=KandidatListData(total=0, filtered_boxes=valid_boxes, candidates=[]),
             )
 
         filtered = []
@@ -233,14 +238,19 @@ class SimulationService:
                         nilai_kinerja=c.get("nilai_kinerja"),
                         nilai_kinerja_label=c.get("nilai_kinerja_label"),
                         masa_kerja=c.get("masa_kerja"),
-                        diklat_pim_level=c.get("diklat_pim_level"),
+                        masa_kerja_total_tahun=c.get("masa_kerja_total_tahun"),
                         pengalaman_struktural_tahun=c.get("pengalaman_struktural_tahun"),
+                        diklat_pim_level=c.get("diklat_pim_level"),
+                        jenjang_pendidikan_id=c.get("jenjang_pendidikan_id"),
                         current_eselon_id=c.get("current_eselon_id"),
                         target_eselon_id=c.get("target_eselon_id"),
                         recommendation_label=c.get("recommendation_label"),
                         recommendation_type=c.get("recommendation_type"),
                         is_eligible=c.get("is_eligible"),
                         rhk=c.get("rhk", []),
+                        foto_url=c.get("foto_url"),
+                        pool=c.get("pool"),
+                        pool_id=c.get("pool_id"),
                         posisi_nine_box_talenta=posisi,
                         box_number=box_num,
                     )
@@ -251,7 +261,7 @@ class SimulationService:
             data=KandidatListData(
                 total=len(filtered),
                 filtered_boxes=valid_boxes,
-                kandidat=filtered,
+                candidates=filtered,
             ),
         )
 

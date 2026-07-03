@@ -48,6 +48,7 @@ class MatchingHistory(Base):
     top_kandidat = Column(JSONB, nullable=False)
     sub_tugas = Column(JSONB, nullable=True)
     catatan_reviewer = Column(Text, nullable=True)
+    pipeline_result = Column(JSONB, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
