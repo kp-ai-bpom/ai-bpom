@@ -60,7 +60,7 @@ class MatchingHistory(Base):
 class IngestionLog(Base):
     """Model untuk log proses ingestion dokumen RAG."""
 
-    __tablename__ = "ingestion_logs"
+    __tablename__ = "pemetaan_ingestion_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     filename = Column(String(255), unique=True, nullable=False, index=True)
