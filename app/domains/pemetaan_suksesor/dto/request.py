@@ -107,3 +107,11 @@ class SaveMatchingRequest(BaseModel):
     catatan_reviewer: Optional[str] = Field(
         None, description="Catatan dari reviewer agent"
     )
+    pipeline_result: Optional[Dict] = Field(
+        None, description="Hasil lengkap pipeline XAI-MENTARI (planner/analysis/synthesis/reviewer)"
+    )
+
+
+class IngestRequest(BaseModel):
+    document_names: list[str] | None = None
+    force_reingest: bool = False

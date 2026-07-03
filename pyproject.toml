@@ -3,7 +3,7 @@ name = "ai-services-bpom"
 version = "0.1.0"
 description = "AI Services API untuk sistem kepegawaian BPOM menggunakan FastAPI dan LLM"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]>=0.135.1",
     "python-dotenv>=1.2.1",
@@ -13,8 +13,8 @@ dependencies = [
     "asyncpg>=0.31.0",
     "langchain-anthropic>=1.4.0",
     "psycopg2-binary>=2.9.11",
-    "strands-agents[openai]>=1.35.0",
-    "strands-agents-tools>=0.4.1",
+    "strands-agents[openai]>=1.38.0",
+    "strands-agents-tools>=0.5.2",
     "strands-agents-builder>=0.1.10",
     "tiktoken>=0.12.0",
     "toon-format>=0.9.0b1",
@@ -24,6 +24,10 @@ dependencies = [
     "pgvector>=0.4.2",
     "pdfplumber>=0.11.9",
     "ragas>=0.4.3",
+    "minio>=7.2.15",
+    "nest-asyncio>=1.6.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.0.0,<2.4.0",
 ]
 
 [dependency-groups]
@@ -37,8 +41,8 @@ dev = [
 ]
 
 [tool.poe.tasks]
-dev = "fastapi dev main.py --port 8080"
-start = "fastapi run main.py --port 8080"
+dev = "fastapi dev main.py --port 9080"
+start = "fastapi run main.py --port 9080"
 prod = "fastapi run main.py --port 8080 --workers 5"
 test = "pytest"
 regression-chatbot = "python scripts/run_chatbot_regression.py"
