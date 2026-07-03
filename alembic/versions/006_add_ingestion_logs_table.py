@@ -1,4 +1,4 @@
-"""Add ingestion_logs table
+"""Add pemetaan_ingestion_logs table
 
 Revision ID: 006
 Revises: 005
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '006'
+revision: str = 'b00000000001'
 down_revision: Union[str, None] = '005'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table(
-        'ingestion_logs',
+        'pemetaan_ingestion_logs',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('filename', sa.String(length=255), nullable=False),
         sa.Column('content_hash', sa.String(length=64), nullable=False),
@@ -30,9 +30,9 @@ def upgrade() -> None:
         sa.Column('ingested_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.create_index('ix_ingestion_logs_filename', 'ingestion_logs', ['filename'], unique=True)
+    op.create_index('ix_pemetaan_ingestion_logs_filename', 'pemetaan_ingestion_logs', ['filename'], unique=True)
 
 
 def downgrade() -> None:
-    op.drop_index('ix_ingestion_logs_filename', table_name='ingestion_logs')
-    op.drop_table('ingestion_logs')
+    op.drop_index('ix_pemetaan_ingestion_logs_filename', table_name='pemetaan_ingestion_logs')
+    op.drop_table('pemetaan_ingestion_logs')
