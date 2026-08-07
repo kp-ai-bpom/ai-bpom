@@ -1,0 +1,36 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Balai Pengujian Khusus Obat dan Makanan",
+    "atasan_langsung": "Kepala Pusat Pengembangan Pengujian Obat dan Makanan Nasional",
+    "tugas": "melaksanakan pengujian khusus Obat dan Makanan.",
+    "fungsi": [
+      "penyusunan rencana, program, dan anggaran",
+      "pelaksanaan pengujian kimia, mikrobiologi, dan biologi molekuler atas sampel investigasi, penyidikan, dan/atau pengkajian Obat dan Makanan dalam lingkup nasional dan internasional",
+      "pelaksanaan pengujian rujukan kimia, mikrobiologi, dan biologi molekuler Obat dan Makanan dalam lingkup nasional dan internasional",
+      "pelaksanaan pemantauan, evaluasi dan pelaporan",
+      "pelaksanaan urusan tata usaha dan rumah tangga"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Penata Tk. I / III/d",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Sarjana/Sederajat (S1/DIV)",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Pengawas (Eselon IV) atau Jabatan Fungsional Ahli Muda paling singkat 3 (tiga) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat IV, dan/atau Diklat Kepemimpinan Tingkat III bagi Pejabat Administrator",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 3 (tiga) tahun",
+      "kompetensi_spesifik": []
+    }
+  }
+}

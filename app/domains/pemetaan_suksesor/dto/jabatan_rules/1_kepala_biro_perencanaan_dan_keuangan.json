@@ -1,0 +1,42 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Biro Perencanaan dan Keuangan",
+    "atasan_langsung": "Sekretaris Utama",
+    "tugas": "melaksanakan koordinasi dan penyusunan rencana, program, dan anggaran, serta pemantauan, evaluasi, dan pelaporan kinerja, dan pengelolaan keuangan.",
+    "fungsi": [
+      "penyiapan koordinasi dan penyusunan, penyerasian, dan pengintegrasian rencana strategis dan rencana tahunan di lingkungan BPOM",
+      "penyiapan koordinasi dan penyusunan anggaran pendapatan dan belanja negara",
+      "penyiapan koordinasi dan pengelolaan pinjaman dan hibah luar negeri",
+      "penyiapan koordinasi, pemantauan, evaluasi, dan pelaporan kinerja organisasi di lingkungan BPOM",
+      "penyiapan koordinasi pengelolaan dan pelaporan keuangan",
+      "pelaksanaan urusan tata usaha dan rumah tangga biro"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Pegawai Negeri Sipil",
+    "usia_maksimal": "56 (lima puluh enam) tahun ketika pelantikan",
+    "pangkat_golongan": "Sekurang-kurangnya Pembina Tk. I, IV/b untuk jabatan Kepala Biro",
+    "kualifikasi_pendidikan": "Paling rendah Sarjana (S1) diutamakan bagi peserta yang memiliki kualifikasi pendidikan Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Administrator (Eselon III) atau Jabatan Fungsional Ahli Madya paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Diutamakan bagi yang telah mengikuti/lulus Diklat Kepemimpinan Tingkat III, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi dan Administrator",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Paling singkat selama 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Memberikan rekomendasi terkait penyusunan rencana kerja dan anggaran",
+        "Memberikan rekomendasi terkait penyusunan arsitektur kinerja dan indikator kinerja",
+        "Memberikan Rekomendasi terkait Penyusunan Penyusunan RPJP, RPJM, dan Renstra",
+        "Memberikan rekomendasi terhadap manajemen keuangan"
+      ]
+    }
+  }
+}
