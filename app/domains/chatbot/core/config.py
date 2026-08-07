@@ -39,15 +39,62 @@ class ChatbotSettings(BaseSettings):
     # ── Semantic Memory Pipeline (Tahap 2 — schema filtering) ───────────────
     CHATBOT_VECTOR_TABLE: str = os.getenv("CHATBOT_VECTOR_TABLE", "knowledge_entities")
     CHATBOT_SQL_TIMEOUT_MS: int = int(os.getenv("CHATBOT_SQL_TIMEOUT_MS", "8000"))
-    CHATBOT_TOP_K_PER_KEYWORD: int = int(os.getenv("CHATBOT_TOP_K_PER_KEYWORD", "15"))
+    CHATBOT_TOP_N_PER_KEYWORD: int = int(
+        os.getenv(
+            "CHATBOT_TOP_N_PER_KEYWORD",
+            os.getenv("CHATBOT_TOP_K_PER_KEYWORD", "15"),
+        )
+    )
     CHATBOT_MAX_RETRIEVED_TABLES: int = int(os.getenv("CHATBOT_MAX_RETRIEVED_TABLES", "5"))
     CHATBOT_TABLE_WEIGHT: float = float(os.getenv("CHATBOT_TABLE_WEIGHT", "1.5"))
     CHATBOT_COLUMN_WEIGHT: float = float(os.getenv("CHATBOT_COLUMN_WEIGHT", "1.0"))
     CHATBOT_RETRIEVAL_THRESHOLD: float = float(
-        os.getenv("CHATBOT_RETRIEVAL_THRESHOLD", "0.3")
+        os.getenv("CHATBOT_RETRIEVAL_THRESHOLD", "0.7")
     )
     CHATBOT_COLUMN_SIMILARITY_THRESHOLD: float = float(
         os.getenv("CHATBOT_COLUMN_SIMILARITY_THRESHOLD", "0.25")
+    )
+    CHATBOT_AUTO_INCLUDE_KEYS: bool = os.getenv(
+        "CHATBOT_AUTO_INCLUDE_KEYS", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    # Whitelist kolom display (nip, nama, deskripsi, satker_nama, ...) per
+    # tabel master (_tm / _top / V_*). Di-inject otomatis oleh TableRetriever
+    # ketika ``CHATBOT_AUTO_INCLUDE_KEYS=true`` supaya recall_all Stage 2
+    # tidak terbatas pada PK/FK saja — kolom display obligatori (yang hampir
+    # selalu muncul di SELECT GT) sering kali punya embedding generik
+    # (cosine < threshold) sehingga di-miss vector retrieval.
+    # Format: JSON ``{"schema.table": ["col1", "col2", ...], ...}``. Untuk
+    # ``SIAP_SATKER_TOP`` (identifier quoted), pakai exact case ``public.SIAP_SATKER_TOP``.
+    CHATBOT_DISPLAY_COLS_JSON: str = os.getenv(
+        "CHATBOT_DISPLAY_COLS_JSON",
+        '{'
+        '"public.propinsi_tm":["nama"],'
+        '"public.kabupaten_tm":["nama"],'
+        '"public.kecamatan_tm":["nama"],'
+        '"public.pangkat_tm":["pangkat_nama"],'
+        '"public.tipepegawai_tm":["deskripsi"],'
+        '"public.eselon_tm":["eselon_nama"],'
+        '"public.disabilitas_tm":["deskripsi"],'
+        '"public.pegawai_tm":["nip","nama"],'
+        '"public.jabatan_tm":["jabatan_nama"],'
+        '"public.SIAP_SATKER_TOP":["satker_nama","tipe_balai"],'
+        '"siap.V_PENDIDIKAN_TERAKHIR":["namasekolah","programstudi","jenjang"]'
+        '}',
+    )
+    # Whitelist KEY columns (PK / JOIN keys) untuk tabel yang TIDAK punya
+    # PRIMARY KEY / FOREIGN KEY constraint terdaftar di
+    # ``information_schema`` (mis. tabel di-import dari CSV/dump tanpa
+    # deklarasi constraint formal). Override ini AUGMENT hasil
+    # ``ChatbotRepository.get_table_key_columns()`` — tabel yang sudah
+    # punya constraint normal tetap dapat semua key kolomnya.
+    # Format: JSON ``{"schema.table": ["col1", "col2", ...], ...}``. Untuk
+    # ``SIAP_SATKER_TOP`` (identifier quoted), pakai exact case
+    # ``public.SIAP_SATKER_TOP``. Default minimal: hanya satker_id pada
+    # SIAP_SATKER_TOP — terbukti di audit Stage 2 (Task #58) injection rate
+    # 0/83 sebelum override, 100% sesudah.
+    CHATBOT_KEY_COLS_JSON: str = os.getenv(
+        "CHATBOT_KEY_COLS_JSON",
+        '{"public.SIAP_SATKER_TOP":["satker_id"]}',
     )
     CHATBOT_MAX_CONTEXT_CHARS: int = int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS", "40000"))
     CHATBOT_SQL_GENERATION_RETRIES: int = int(
@@ -178,6 +225,65 @@ class ChatbotSettings(BaseSettings):
     )
     CHATBOT_AMBIGUITY_EMBEDDING_MODEL: str = os.getenv(
         "CHATBOT_AMBIGUITY_EMBEDDING_MODEL", "text-embedding-3-small"
+    )
+
+    # ── Stage 2 UQ (Schema Multiple-Interpretation, Semantic Clustering) ────
+    # Ketidakpastian "multiple-interpretation" di stage schema-filtering, diukur
+    # pada OUTPUT REASONING LLM (bukan schema candidate / embedding tabel).
+    # Skema candidate diretrieval SEKALI, lalu LLM meng-generate M interpretasi
+    # skema @ T>0 (pemetaan konsep pertanyaan → tabel/kolom kandidat) → tiap
+    # interpretasi (teks NL) di-embed → cluster single-link cosine → normalized
+    # entropy H_norm → gate τ_U. Bila H_norm > τ_U → interpretasi skema
+    # bercabang → minta klarifikasi sebelum SQL. Matematikanya reuse
+    # ``semantic_disambiguation/uq.py`` (sama persis dengan Stage 1); yang
+    # berbeda hanya SUMBER sample (interpretasi skema, bukan rewrite pertanyaan).
+    CHATBOT_SCHEMA_UQ_ENABLED: bool = (
+        os.getenv("CHATBOT_SCHEMA_UQ_ENABLED", "true").lower() == "true"
+    )
+    CHATBOT_SCHEMA_UQ_M_SAMPLING: int = int(
+        os.getenv("CHATBOT_SCHEMA_UQ_M_SAMPLING", "15")
+    )
+    # T_sampling DIPERTAHANKAN di 1.3. Sempat dicoba 1.6 untuk menaikkan
+    # keberagaman, tetapi terlalu tinggi untuk model ini: output JSON sampler
+    # interpretasi rusak massal (teramati 14/15 sampel invalid → hanya 1 valid →
+    # mustahil mendeteksi percabangan, malah memaksa verdict "confident"). 1.3
+    # terbukti menghasilkan sampel valid. Keberagaman dinaikkan lewat M (15) dan
+    # τ_cluster (0.72), BUKAN lewat temperature ekstrem.
+    CHATBOT_SCHEMA_UQ_T_SAMPLING: float = float(
+        os.getenv("CHATBOT_SCHEMA_UQ_T_SAMPLING", "1.3")
+    )
+    # τ_cluster schema — single-link boundary atas cosine embedding NL
+    # interpretasi skema. Diturunkan 0.80→0.72 agar interpretasi yang mirip-tapi-
+    # beda-makna lebih mudah terpisah menjadi cluster terpisah → lebih sensitif
+    # memicu klarifikasi pada keyword ambigu. Trade-off: bisa over-trigger pada
+    # parafrase pemetaan yang SAMA. Tetap STALE; idealnya dikalibrasi pada dataset
+    # uji Stage 2 (di luar scope tugas ini).
+    CHATBOT_SCHEMA_UQ_TAU_CLUSTER: float = float(
+        os.getenv("CHATBOT_SCHEMA_UQ_TAU_CLUSTER", "0.72")
+    )
+    # τ_U schema — gate entropi. Diturunkan ke 0.12 (dari 0.40 warisan Stage 1)
+    # agar sensitif terhadap divergensi interpretasi-skema Stage 2b: dengan
+    # M=10 dan normalisasi log(M), split 2-cluster mentok di ~0.30, jadi 0.40
+    # tak pernah tercapai untuk 2 interpretasi. 0.12 menangkap split nyata 9:1
+    # (H_norm≈0.14) sambil tetap membiarkan kueri konvergen (H_norm≈0) sebagai
+    # confident. JANGAN dianggap final sampai dikalibrasi pada dataset uji Stage 2.
+    CHATBOT_SCHEMA_UQ_TAU_U: float = float(
+        os.getenv("CHATBOT_SCHEMA_UQ_TAU_U", "0.12")
+    )
+    # Model embedding untuk interpretasi skema Stage 2. Sengaja terpisah dari
+    # ``AI_EMBEDDINGS_MODEL_NAME`` (vector store knowledge entities) supaya
+    # parity dengan kalibrasi UQ (text-embedding-3-small).
+    CHATBOT_SCHEMA_UQ_EMBEDDING_MODEL: str = os.getenv(
+        "CHATBOT_SCHEMA_UQ_EMBEDDING_MODEL", "text-embedding-3-small"
+    )
+
+    # ── Safeguard istilah-ambigu (DETERMINISTIK, terpisah dari UQ) ───────────
+    # Kamus rule-based (lihat ``database_schema_filtering/ambiguous_lexicon.py``)
+    # yang MENJAMIN istilah ambigu domain (mis. "senior", "terbaik", "terbanyak")
+    # selalu memicu klarifikasi walau sampler UQ konvergen. BUKAN bagian dari
+    # kuantifikasi ketidakpastian — verdict UQ tetap dilaporkan apa adanya.
+    CHATBOT_AMBIGUOUS_LEXICON_ENABLED: bool = (
+        os.getenv("CHATBOT_AMBIGUOUS_LEXICON_ENABLED", "true").lower() == "true"
     )
 
     # ── Procedural Memory ───────────────────────────────────────────────────

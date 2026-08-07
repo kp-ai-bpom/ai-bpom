@@ -602,6 +602,24 @@ class SQLGenerator:
         )
         # Idempotent: kalau sudah `public."SIAP_SATKER_TOP"`, regex di atas
         # tidak akan match karena negative lookahead `(?!")` melihat `"` setelah.
+        # V_PENDIDIKAN_TERAKHIR TANPA double-quote: identitas case-sensitif
+        # yang sama dengan SIAP_SATKER_TOP. PostgreSQL akan lowercase
+        # `siap.V_PENDIDIKAN_TERAKHIR` → `siap.v_pendidikan_terakhir` yang
+        # tidak ada (UndefinedTableError). Tambahkan quote.
+        # Case-insensitive supaya juga handle varian dari refiner:
+        # `SIAP.V_PENDIDIKAN_TERAKHIR`, `siap.v_pendidikan_terakhir`, dll.
+        # Semua di-rewrite ke bentuk canonical `siap."V_PENDIDIKAN_TERAKHIR"`.
+        rewritten = re.sub(
+            r'(?i)\bsiap\.V_PENDIDIKAN_TERAKHIR\b(?!")',
+            'siap."V_PENDIDIKAN_TERAKHIR"',
+            rewritten,
+        )
+        # Bare (tanpa schema) di FROM/JOIN — schema-qualify + quote.
+        rewritten = re.sub(
+            r'(?i)(\b(?:from|join)\s+)V_PENDIDIKAN_TERAKHIR\b(?!")',
+            r'\1siap."V_PENDIDIKAN_TERAKHIR"',
+            rewritten,
+        )
         # Halusinasi nama kolom NAMA satker: kolom asli di SIAP_SATKER_TOP
         # adalah ``satker_nama`` (lihat ground truth dataset_v1 +
         # base_knowledge: "ekuivalen dengan SIAP_SATKER_TOP.satker_nama").
@@ -991,7 +1009,7 @@ Jika suatu block berisi N/A, artinya data untuk block tersebut tidak tersedia.
        - position_top_name = JABATAN INDUK; position_name = sub-jabatan. Logika sama: untuk filter nama jabatan utama, pakai position_top_name.
        - grade_top_name = PANGKAT INDUK; grade_name = sub-pangkat.
        Default: untuk DISPLAY, tampilkan kolom *_top_name sebagai kolom utama (alias unit_kerja, jabatan, pangkat) dan kolom non-top sebagai kolom sekunder (alias sub_unit_kerja, sub_jabatan, sub_pangkat) jika relevan.
-       Default: untuk FILTER WHERE berdasarkan nama unit kerja/jabatan/pangkat yang disebut pengguna, gunakan kolom *_top_name (case-insensitive: lower(trim(pe.work_unit_top_name)) = lower(trim('...'))).
+       Default: untuk FILTER WHERE berdasarkan nama unit kerja/satker yang disebut pengguna, gunakan kolom *_top_name dengan pencocokan PARSIAL case-insensitive pada token paling khas (nama kota/daerah), mis. `pe.work_unit_top_name ILIKE '%Bandung%'` — JANGAN persamaan persis `lower(trim(...)) = lower(trim('...'))` karena nama resmi memuat awalan/kata "di" sehingga hampir selalu 0 baris (lihat aturan 22c). Untuk nama jabatan/pangkat yang disebut pengguna, gunakan LIKE '%...%' pada kolom nama terkait.
     f. Untuk pertanyaan yang menanyakan data pegawai dari mantel.period_employees, default kolom yang ditampilkan: nip, full_name AS nama, position_name AS jabatan, work_unit_top_name AS unit_kerja, work_unit_name AS sub_unit_kerja, grade_name AS pangkat, period_date, plus kolom domain yang relevan (pool, cluster, performance_level, competency_level).
     g. Pengecualian: kalau pengguna eksplisit minta "semua kolom", "lengkap", "termasuk ID", "raw", "detail teknis", atau menyebut kolom teknis spesifik (mis. "tampilkan UUID"), baru boleh include kolom teknis sesuai permintaan.
 19. **REKAPITULASI WIDE/PIVOT FORMAT (WAJIB untuk pertanyaan "rekap/rekapitulasi … berdasarkan/per <kategori> pada setiap tipe unit kerja"):**
@@ -1027,6 +1045,13 @@ Jika suatu block berisi N/A, artinya data untuk block tersebut tidak tersedia.
     - ANTI-PATTERN (HARAM — tabel tidak ada): `FROM public.satker_tm`, `JOIN public.satker_tm`, `JOIN satker_tm s`, atau quoting salah seperti `public."satker_tm"`.
     - ANTI-PATTERN (HARAM — kolom tidak ada): `s.nama_satker`, `s.namasatker`, `s.nama_unit_kerja`, `s.nama_balai` (SEMUA salah — gunakan `s.satker_nama`).
     - Contoh KORREK: `JOIN public."SIAP_SATKER_TOP" s ON p.satker_top_id = s.satker_id`.
+
+22c. **FILTER NAMA SATKER / UNIT KERJA — WAJIB pencocokan PARSIAL (ILIKE), BUKAN persamaan persis.** Nilai `public."SIAP_SATKER_TOP".satker_nama` adalah nama RESMI lengkap dengan awalan & kata sambung (nilai DB sebenarnya: `"Balai Besar POM di Bandung"`, `"Loka POM di Kota Tangerang"`, dst). Pengguna hampir selalu menyebut bentuk singkat/akronim ("BBPOM Bandung", "BPOM Bandung", atau hanya "Bandung").
+    - ANTI-PATTERN (HARAM — hampir selalu 0 baris): `lower(s.satker_nama) = lower(trim('Balai Besar POM Bandung'))` atau `s.satker_nama = '...'`. Persamaan persis GAGAL karena selisih kata "di" dan awalan "Balai Besar POM".
+    - KORREK: cocokkan token paling khas (biasanya nama kota/kabupaten/daerah) secara case-insensitive parsial: `s.satker_nama ILIKE '%Bandung%'`.
+    - AKRONIM: "BBPOM" = "Balai Besar POM", "BPOM <kota>" (konteks satker daerah) = balai/loka POM di kota itu. JANGAN jadikan akronim sebagai string yang dicocokkan persis — buang awalan, cukup ILIKE token kota-nya.
+    - Contoh KORREK untuk "pegawai di BBPOM Bandung": `... JOIN public."SIAP_SATKER_TOP" s ON p.satker_top_id = s.satker_id WHERE s.satker_nama ILIKE '%Bandung%' AND p.status_pegawai IN ('CPNS','PNS','POLRI','PPPK') AND p.kedudukan_pegawai IN ('Aktif','Tugas Belajar','CLTN')`.
+    - CATATAN: pencocokan parsial untuk NAMA SATKER ini BERBEDA dari nama sekolah/program studi (aturan 16) yang tetap memakai persamaan persis ter-normalisasi.
 
 23. **CROSS-SCHEMA JOIN (public ↔ mantel):** Kalau pertanyaan butuh data demografis (public.pegawai_tm) + data kinerja/snapshot (mantel.period_employees), JOIN via `pe.nip = p.nip AND pe.period_date = (SELECT MAX(period_date) FROM mantel.period_employees)`. Kolom kinerja: `pe.performance_avg` (numerik 0-5).
 
