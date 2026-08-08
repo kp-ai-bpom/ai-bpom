@@ -17,6 +17,12 @@ from app.domains.penilaian_makalah.core.config import settings as domain_setting
 
 NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 VMERGE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+ALLOWED_TEXT_SUFFIXES = {".docx", ".pdf", ".txt"}
+
+
+def _safe_text_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    return suffix if suffix in ALLOWED_TEXT_SUFFIXES else ".tmp"
 
 
 def _read_docx(filepath: str) -> str:
@@ -62,7 +68,7 @@ def _read_pdf(filepath: str) -> str:
 
 
 def extract_text_from_uploaded(uploaded_file) -> str:
-    suffix = Path(uploaded_file.name).suffix.lower()
+    suffix = _safe_text_suffix(uploaded_file.name)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
@@ -80,7 +86,7 @@ def extract_text_from_uploaded(uploaded_file) -> str:
 
 
 def extract_text_from_bytes(data: bytes, filename: str) -> str:
-    suffix = Path(filename).suffix.lower()
+    suffix = _safe_text_suffix(filename)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(data)
         tmp_path = tmp.name
@@ -148,4 +154,3 @@ def score_color(score: float) -> str:
     elif score >= 70: return "#f59e0b"
     elif score >= 55: return "#f97316"
     else:             return "#ef4444"
-

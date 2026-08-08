@@ -1740,14 +1740,20 @@ def page_settings():
             st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
 
         st.divider()
-        with st.expander("📂 Ingestion dari Folder (path di server)"):
-            folder_path = st.text_input("Path folder", placeholder="/path/to/documents")
+        with st.expander("📂 Ingestion dari Folder (path relatif dari WORKING_DIR)"):
+            folder_path = st.text_input("Path folder", placeholder="knowledge_docs")
             if st.button("Ingest Folder", disabled=not folder_path):
-                if not os.path.exists(folder_path):
-                    st.error(f"Folder tidak ditemukan: `{folder_path}`")
+                base_dir = Path(WORKING_DIR).resolve()
+                relative_folder = Path(folder_path)
+                if relative_folder.is_absolute() or ".." in relative_folder.parts:
+                    st.error("Path folder harus relatif dan tidak boleh menggunakan '..'.")
                 else:
+                    target_folder = (base_dir / relative_folder).resolve()
+                    if not target_folder.is_dir():
+                        st.error(f"Folder tidak ditemukan: `{target_folder}`")
+                        st.stop()
                     docs = []
-                    for path in Path(folder_path).rglob("*"):
+                    for path in target_folder.rglob("*"):
                         suffix = path.suffix.lower()
                         if suffix == ".docx":
                             txt = _read_docx(str(path))
@@ -1767,7 +1773,7 @@ def page_settings():
                                 [d["text"] for d in docs],
                                 file_paths=[d["filename"] for d in docs],
                             ))
-                        st.success(f"✅ {len(docs)} dokumen berhasil diingest dari `{folder_path}`")
+                        st.success(f"✅ {len(docs)} dokumen berhasil diingest dari `{target_folder}`")
 
     # Tab Settings
     with dtab2:
