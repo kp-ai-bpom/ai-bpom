@@ -69,7 +69,7 @@ def _read_pdf(filepath: str) -> str:
 
 def extract_text_from_uploaded(uploaded_file) -> str:
     suffix = _safe_text_suffix(uploaded_file.name)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
     try:
@@ -87,7 +87,7 @@ def extract_text_from_uploaded(uploaded_file) -> str:
 
 def extract_text_from_bytes(data: bytes, filename: str) -> str:
     suffix = _safe_text_suffix(filename)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
         tmp.write(data)
         tmp_path = tmp.name
     try:
