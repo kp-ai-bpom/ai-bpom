@@ -1,0 +1,32 @@
+{
+  "nip": "KANDIDAT-001",
+  "nama": "Dr. Budi Santoso, M.Si., Apt.",
+  "nama_lengkap": "Dr. Budi Santoso, M.Si., Apt.",
+  "jabatan_nama": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
+  "foto_url": null,
+  "pool": null,
+  "pool_id": null,
+  "fungsi_jabatan": [],
+  "riwayat_jabatan": [
+    "Kepala Bagian Tata Usaha pada Inspektorat Utama",
+    "Auditor Ahli Madya pada Inspektorat I"
+  ],
+  "jabatan_terakhir": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
+  "riwayat_pendidikan": [],
+  "nilai_potensi": null,
+  "nilai_mansoskul": null,
+  "nilai_kinerja": 4,
+  "nilai_kinerja_label": "Di Atas Ekspektasi",
+  "masa_kerja": null,
+  "masa_kerja_total_tahun": null,
+  "diklat_pim_level": "Diklat Kepemimpinan Tingkat III",
+  "jenjang_pendidikan_id": null,
+  "pengalaman_struktural_tahun": null,
+  "current_eselon_id": null,
+  "target_eselon_id": null,
+  "recommendation_label": null,
+  "recommendation_type": null,
+  "is_eligible": null,
+  "rhk": [],
+  "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
+}

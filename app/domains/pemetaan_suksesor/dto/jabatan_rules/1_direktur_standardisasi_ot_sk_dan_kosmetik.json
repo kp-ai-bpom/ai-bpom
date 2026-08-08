@@ -1,0 +1,41 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Direktur Standardisasi Obat Tradisional, Suplemen Kesehatan dan Kosmetik",
+    "atasan_langsung": "Deputi Bidang Pengawasan Obat Tradisional, Suplemen Kesehatan, dan Kosmetik",
+    "tugas": "Melaksanakan penyusunan dan pelaksanaan kebijakan, penyusunan norma, standar, prosedur, kriteria, pelaksanaan bimbingan teknis dan supervisi, serta pemantauan, evaluasi, dan pelaporan di bidang standardisasi obat tradisional, suplemen kesehatan, kosmetik, dan obat bahan alam Indonesia.",
+    "fungsi": [
+      "poin 1.",
+      "poin 2.",
+      "poin 3.",
+      "poin 4.",
+      "poin 5.",
+      "poin 6.",
+      "poin 7.",
+      "poin 8."
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "poin 1.",
+    "usia_maksimal": "poin 2.",
+    "pangkat_golongan": "poin 3.",
+    "kualifikasi_pendidikan": "poin 4.",
+    "pengalaman_jabatan_struktural": "poin 5.",
+    "pelatihan_kepemimpinan": "poin 6.",
+    "penilaian_prestasi": "poin 7.",
+    "hukuman_disiplin": "poin 8.",
+    "kesehatan": "poin 9.",
+    "pelaporan_kekayaan_pajak": "poin 10.",
+    "integritas": [
+      "poin 11.",
+      "poin 12."
+    ],
+    "kompetensi": "poin 13.",
+    "kemampuan_bahasa": "poin 14.",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 5 (lima) tahun",
+      "kompetensi_spesifik": [
+        "Memiliki pengalaman jabatan dalam bidang tugas yang terkait dengan bidang tugas dan fungsi jabatan yang akan diduduki"
+      ]
+    }
+  }
+}

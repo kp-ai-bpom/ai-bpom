@@ -1,0 +1,43 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Kepala Subbagian Kesekretariatan Bidang Pengawasan Obat, Narkotika, Psikotropika, Prekursor, dan Zat Adiktif",
+    "atasan_langsung": "Deputi Bidang Pengawasan Obat, Narkotika, Psikotropika, Prekursor, dan Zat Adiktif",
+    "tugas": "melaksanakan urusan kesekretariatan Deputi Bidang Pengawasan Obat, Narkotika, Psikotropika, Prekursor, dan Zat Adiktif.",
+    "fungsi": [
+      "penyusunan rencana, program, dan anggaran",
+      "pelaksanaan pengelolaan keuangan dan barang milik negara",
+      "pengelolaan persuratan dan kearsipan",
+      "pengelolaan tata laksana dan administrasi penjaminan mutu",
+      "pelaksanan urusan pengelolaan kepegawaian",
+      "pengelolaan teknologi informasi dan komunikasi",
+      "pelaksanaan urusan perlengkapan dan kerumahtanggaan",
+      "pelaksanaan pemantauan, evaluasi, dan pelaporan kinerja"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "Berstatus sebagai Pegawai Negeri Sipil",
+    "usia_maksimal": "",
+    "pangkat_golongan": "Memiliki pangkat/golongan ruang sekurang-kurangnya Penata Muda Tk. I / III/b untuk jabatan Pengawas",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Diploma Tiga (D-III)",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki Jabatan Pelaksana atau Jabatan Fungsional Ahli Pertama paling singkat 4 (empat) tahun",
+    "pelatihan_kepemimpinan": "",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "paling singkat selama 4 (empat) tahun",
+      "kompetensi_spesifik": [
+        "Mampu melaksanakan manajemen perkantoran sesuai pedoman/petunjuk teknis",
+        "Menyusun laporan pimpinan",
+        "Menyelenggarakan keprotokolan"
+      ]
+    }
+  }
+}

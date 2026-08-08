@@ -4,7 +4,7 @@
   
   [![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-green.svg)](https://fastapi.tiangolo.com)
   [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
-  [![MongoDB](https://img.shields.io/badge/MongoDB-7.0+-green.svg)](https://www.mongodb.com)
+  [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 </div>
 
@@ -21,7 +21,7 @@
 - [API Documentation](#-api-documentation)
 - [Project Structure](#-project-structure)
 - [Development](#-development)
-- [Model Management](#-model-management)
+- [Database Migrations](#️-database-migrations)
 - [Architecture](#-architecture)
 - [Documentation](#-documentation)
 - [Contributing](#-contributing)
@@ -62,20 +62,16 @@
 
 ### Database
 
-- **MongoDB** - NoSQL database (shared with NestJS backend)
-- **Beanie ODM** - Async MongoDB ODM untuk managed collections
-- **PyMongo** - Native driver untuk external collections
+- **PostgreSQL** - Relational database
+- **SQLAlchemy** - Async ORM
+- **asyncpg** - Async PostgreSQL driver
+- **Alembic** - Database migration tool
 
 ### LLM Integration
 
 - **LangChain** - LLM orchestration framework
 - **OpenAI GPT** - Primary LLM provider
 - **Anthropic Claude** - Fallback LLM provider
-
-### Database
-
-- **PostgreSQL** - Relational database dengan SQLAlchemy async
-- **asyncpg** - Async PostgreSQL driver
 
 ### Package Management
 
@@ -154,6 +150,50 @@ AI_INSTRUCT_MODEL_NAME=gpt-4.1      # General purpose
 AI_THINK_MODEL_NAME=gpt-4.1         # Reasoning tasks
 AI_DEEP_THINK_MODEL_NAME=gpt-4.1    # Complex analysis
 ```
+
+### 3. LLM Temperature per Pipeline Stage
+
+`CHATBOT_LLM_TEMPERATURE` adalah default temperature global untuk seluruh
+model LLM (instruct / think / deep_think). Sejak refactor per-stage temperature,
+tiap tahap pipeline juga bisa di-override secara independen tanpa perlu
+me-restart proses dengan `LLMManager` baru — temperature di-passing per panggilan
+via `.bind(temperature=...)`.
+
+#### Hierarki Resolusi (per stage)
+
+1. **Env var per-stage** (mis. `CHATBOT_REWRITE_LLM_TEMPERATURE`) jika diset.
+2. **Fallback ke `CHATBOT_LLM_TEMPERATURE`** (default global, default 0.7).
+3. Final default 0.7 jika global juga tidak diset.
+
+Khusus Tahap 3 (Ambiguity) terdapat **legacy fallback intermediate**: bila
+`CHATBOT_AMBIGUITY_LLM_TEMPERATURE` tidak diset, resolver akan menghormati
+nilai legacy `CHATBOT_AMBIGUITY_TEMPERATURE` (default 0.1) sebelum jatuh ke
+global. Ini menjaga kompatibilitas dengan eval sweep dan operator yang sudah
+men-tune env legacy tersebut sebelum task ini dirilis.
+
+Nilai akhir di-clamp ke `[0.0, 2.0]` di config loader, jadi misconfig (negatif,
+NaN, parse error) tidak akan bocor ke provider.
+
+#### Daftar Env Var per Stage
+
+| Stage                       | Env Var                                      | Model      | Tipikal |
+| --------------------------- | -------------------------------------------- | ---------- | ------- |
+| 1. Rewrite                  | `CHATBOT_REWRITE_LLM_TEMPERATURE`            | think      | 0.0     |
+| 2. Schema keyword extractor | `CHATBOT_SCHEMA_KEYWORD_LLM_TEMPERATURE`     | think      | 0.0     |
+| 3. Ambiguity detect/refine  | `CHATBOT_AMBIGUITY_LLM_TEMPERATURE`          | instruct   | 0.1–0.3 |
+| 4. SQL generator            | `CHATBOT_SQL_GENERATOR_LLM_TEMPERATURE`      | deep_think | 0.0     |
+| 5a. Validation refiner      | `CHATBOT_VALIDATION_REFINER_LLM_TEMPERATURE` | think      | 0.0     |
+| 5b. Validation judge        | `CHATBOT_VALIDATION_JUDGE_LLM_TEMPERATURE`   | deep_think | 0.0–0.2 |
+
+Contoh: men-deterministik-kan Tahap 1 (rewrite) tanpa mempengaruhi tahap lain:
+
+```bash
+export CHATBOT_REWRITE_LLM_TEMPERATURE=0.0
+```
+
+Tanpa env per-stage di-set, perilaku identik dengan sebelum refactor —
+seluruh tahap memakai `CHATBOT_LLM_TEMPERATURE` (atau legacy
+`CHATBOT_AMBIGUITY_TEMPERATURE` untuk Tahap 3).
 
 ---
 
@@ -238,6 +278,11 @@ curl -X POST "http://localhost:8080/api/chatbot/think" \
 
 ```
 ai-services-bpom/
+├── alembic/                        # Database migrations
+│   ├── versions/                  # Migration files
+│   │   └── 001_create_user_table.py
+│   ├── env.py                     # Alembic config (async support)
+│   └── script.py.mako             # Migration template
 ├── app/
 │   ├── api/                        # API routing
 │   │   └── router.py              # Main router aggregator
@@ -268,6 +313,7 @@ ai-services-bpom/
 │   │       └── schemas.py
 │   └── server.py                  # App factory with lifespan
 ├── docker-compose.yml              # PostgreSQL service
+├── alembic.ini                     # Alembic configuration
 ├── main.py                         # Application entry point
 ├── pyproject.toml                  # Dependencies & project config
 ├── README.md                       # This file
@@ -316,9 +362,22 @@ touch app/domains/new_domain/{api,services,repositories,models,schemas}.py
 
 2. Follow canonical pattern dari `chatbot`
 
-3. Register models di `app/db/database.py`
+3. Register models di `app/db/database.py` (optional, untuk auto-create tables)
 
-4. Add router ke `app/api/router.py`
+4. **Import model di `alembic/env.py`** untuk support autogenerate migration:
+
+   ```python
+   # In alembic/env.py
+   from app.domains.new_domain.models import YourModel
+   ```
+
+5. Create migration:
+
+   ```bash
+   poe migration-new "add new_domain table"
+   ```
+
+6. Add router ke `app/api/router.py`
 
 ### Running Tests
 
@@ -330,14 +389,79 @@ poe test
 
 ## 🔧 Development Commands
 
-| Command | Description |
-|---------|-------------|
-| `poe dev` | Run development server with auto-reload |
-| `poe start` | Run production server |
-| `poe prod` | Run with 5 workers |
-| `poe test` | Run pytest |
-| `poe check` | Run ruff linter |
-| `poe format` | Format code with ruff |
+| Command      | Description                             |
+| ------------ | --------------------------------------- |
+| `poe dev`    | Run development server with auto-reload |
+| `poe start`  | Run production server                   |
+| `poe prod`   | Run with 5 workers                      |
+| `poe test`   | Run pytest                              |
+| `poe check`  | Run ruff linter                         |
+| `poe format` | Format code with ruff                   |
+
+---
+
+## 🗄️ Database Migrations
+
+Project ini menggunakan **Alembic** untuk database migrations.
+
+### Migration Commands
+
+| Command                             | Description                                    |
+| ----------------------------------- | ---------------------------------------------- |
+| `poe migrate`                       | Run semua pending migrations (upgrade to head) |
+| `poe migrate-down`                  | Rollback 1 migration terakhir                  |
+| `poe migrate-down-all`              | Rollback semua migrations                      |
+| `poe migration-history`             | Lihat history migrations                       |
+| `poe migration-current`             | Lihat current migration version                |
+| `poe migration-new "message"`       | Buat migration baru (auto-generate dari model) |
+| `poe migration-new-empty "message"` | Buat empty migration file                      |
+
+**Note**: Untuk migration-new dan migration-new-empty, pesan bisa berisi spasi.
+
+### Workflow Membuat Migration Baru
+
+1. **Update atau buat model** di `app/domains/{domain}/models.py`
+
+2. **Import model** di `alembic/env.py`:
+
+   ```python
+   # Import all models here so they are registered with Base.metadata
+   from app.domains.user.models import User
+   from app.domains.your_domain.models import YourModel
+   ```
+
+3. **Generate migration**:
+
+   ```bash
+   poe migration-new "add user table"
+   ```
+
+4. **Review migration file** di `alembic/versions/`
+
+5. **Run migration**:
+   ```bash
+   poe migrate
+   ```
+
+### Example: Membuat User Table
+
+Migration file sudah tersedia di `alembic/versions/001_create_user_table.py`:
+
+```python
+def upgrade() -> None:
+    op.create_table(
+        "user",
+        sa.Column("id", sa.UUID(), primary_key=True),
+        sa.Column("email", sa.String(255), unique=True, nullable=False),
+        sa.Column("username", sa.String(100), unique=True, nullable=False),
+        sa.Column("password_hash", sa.String(255), nullable=False),
+        sa.Column("full_name", sa.String(255), nullable=True),
+        sa.Column("is_active", sa.Boolean(), default=True),
+        sa.Column("is_superuser", sa.Boolean(), default=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
+        sa.Column("updated_at", sa.DateTime(timezone=True), onupdate=sa.text("now()")),
+    )
+```
 
 ---
 
@@ -361,7 +485,7 @@ poe test
   class MyRepository:
       def __init__(self, db: AsyncSession):
           self._db = db
-  
+
   # Service
   class MyService:
       def __init__(self, repository: MyRepository):

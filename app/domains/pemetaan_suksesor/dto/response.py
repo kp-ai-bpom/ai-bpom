@@ -1,0 +1,311 @@
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from pydantic import BaseModel
+
+
+class SuksesorDataResponse(BaseModel):
+    """Response DTO for Suksesor data."""
+
+    id: UUID
+    nip: str
+    nama: str
+    unit_kerja: Optional[str] = None
+    grade: Optional[str] = None
+    kompetensi: Optional[str] = None
+    potensi: Optional[str] = None
+    readiness: Optional[int] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SuksesorResponse(BaseModel):
+    """Standard response wrapper for single Suksesor."""
+
+    message: str
+    data: SuksesorDataResponse
+
+
+class SuksesorListDataResponse(BaseModel):
+    """Response DTO for list of Suksesor with pagination."""
+
+    items: list[SuksesorDataResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class SuksesorListResponse(BaseModel):
+    """Standard response wrapper for list of Suksesor."""
+
+    message: str
+    data: SuksesorListDataResponse
+
+
+class SuksesorDeleteResponse(BaseModel):
+    """Response DTO for delete operation."""
+
+    message: str
+    data: dict
+
+
+# ── Simulation Response Schemas ─────────────────────────────────
+
+
+class DetailEvaluasi(BaseModel):
+    """Detail evaluasi per aspek."""
+
+    status: str
+    keterangan: str
+
+
+class KandidatResult(BaseModel):
+    """Hasil evaluasi satu kandidat."""
+
+    rank: int
+    id_kandidat: str
+    nama: str
+    jabatan_saat_ini: str
+    skor_kesesuaian: float
+    kategori_kesiapan: str
+    confidence_level: str
+    acceptances: int
+    kesimpulan: str
+    alasan_penilaian: str = ""
+    detail_evaluasi: Optional[Dict[str, DetailEvaluasi]] = None
+
+
+class SimulasiDataResponse(BaseModel):
+    """Data response simulasi pemetaan suksesor."""
+
+    target_jabatan: str
+    total_kandidat: int
+    top_kandidat: List[KandidatResult]
+    sub_tugas: Optional[List[Dict]] = None
+    catatan_reviewer: Optional[str] = None
+
+
+class SimulasiResponse(BaseModel):
+    """Response wrapper untuk simulasi pemetaan suksesor."""
+
+    message: str
+    data: SimulasiDataResponse
+    input_token: str = "0 token"
+    output_token: str = "0 token"
+
+
+class NineBoxItem(BaseModel):
+    """Data satu box dalam nine-box talenta grid."""
+
+    box_number: int
+    label: str
+    kinerja: str
+    potensi: str
+    selectable: bool
+    count: int
+    candidates: List[str]
+
+
+class NineBoxData(BaseModel):
+    """Data response nine-box grid."""
+
+    boxes: List[NineBoxItem]
+
+
+class NineBoxResponse(BaseModel):
+    """Response wrapper untuk nine-box grid."""
+
+    message: str
+    data: NineBoxData
+
+
+class KandidatCard(BaseModel):
+    """Data kandidat SIASN — format CandidateInput-compatible untuk pipeline.
+
+    Field-field sama persis dengan CandidateInput di dto/pipeline.py,
+    sehingga response endpoint kandidat bisa langsung dipakai sebagai
+    candidates array di PlannerRequest tanpa transformasi.
+    """
+
+    model_config = {"extra": "allow"}
+
+    nip: str
+    nama: str
+    nama_lengkap: str
+    jabatan_nama: str
+    jabatan_terakhir: str
+    fungsi_jabatan: List[str] = []
+    riwayat_jabatan: List[str] = []
+    riwayat_pendidikan: List[str] = []
+    nilai_potensi: Optional[float] = None
+    nilai_mansoskul: Optional[int] = None
+    nilai_kinerja: Optional[float] = None
+    nilai_kinerja_label: Optional[str] = None
+    masa_kerja: Optional[int] = None
+    masa_kerja_total_tahun: Optional[int] = None
+    pengalaman_struktural_tahun: Optional[str] = None
+    diklat_pim_level: Optional[str] = None
+    jenjang_pendidikan_id: Optional[str] = None
+    current_eselon_id: Optional[str] = None
+    target_eselon_id: Optional[str] = None
+    recommendation_label: Optional[str] = None
+    recommendation_type: Optional[str] = None
+    is_eligible: Optional[bool] = None
+    rhk: List[str] = []
+    foto_url: Optional[str] = None
+    pool: Optional[int] = None
+    pool_id: Optional[int] = None
+    # Nine-box metadata (UI-only, not part of CandidateInput)
+    posisi_nine_box_talenta: Optional[str] = None
+    box_number: int
+
+
+class KandidatListData(BaseModel):
+    """Data response daftar kandidat terfilter berdasarkan box."""
+
+    total: int
+    filtered_boxes: List[int]
+    candidates: List[KandidatCard]
+
+
+class KandidatListResponse(BaseModel):
+    """Response wrapper untuk daftar kandidat."""
+
+    message: str
+    data: KandidatListData
+
+
+# ── Matching History Response Schemas ─────────────────────────────
+
+
+class MatchingHistorySummary(BaseModel):
+    """Ringkasan riwayat matching (tanpa JSON blobs)."""
+
+    id: UUID
+    target_jabatan: str
+    total_kandidat: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MatchingHistoryDetail(BaseModel):
+    """Detail lengkap riwayat matching."""
+
+    id: UUID
+    target_jabatan: str
+    total_kandidat: int
+    top_kandidat: List[Dict]
+    sub_tugas: Optional[List[Dict]] = None
+    catatan_reviewer: Optional[str] = None
+    pipeline_result: Optional[Dict] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MatchingHistoryListData(BaseModel):
+    """Data response daftar riwayat matching dengan paginasi."""
+
+    items: List[MatchingHistorySummary]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class MatchingHistoryListResponse(BaseModel):
+    """Response wrapper untuk daftar riwayat matching."""
+
+    message: str
+    data: MatchingHistoryListData
+
+
+class MatchingHistoryDetailResponse(BaseModel):
+    """Response wrapper untuk detail riwayat matching."""
+
+    message: str
+    data: MatchingHistoryDetail
+
+
+class MatchingHistorySaveResponse(BaseModel):
+    """Response wrapper untuk simpan riwayat matching."""
+
+    message: str
+    data: MatchingHistoryDetail
+
+
+class IngestResult(BaseModel):
+    filename: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    content_hash: str
+    message: str | None = None
+
+
+class IngestResponse(BaseModel):
+    total_documents: int
+    results: list[IngestResult]
+
+
+class IngestLogSummary(BaseModel):
+    id: int
+    filename: str
+    content_hash: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    ingested_at: str
+
+
+class IngestLogListResponse(BaseModel):
+    message: str
+    data: list[IngestLogSummary]
+
+
+class IngestLogDetailResponse(BaseModel):
+    message: str
+    data: IngestLogSummary
+
+
+class UploadResponse(BaseModel):
+    filename: str
+    minio_path: str
+    ingest_result: IngestResult
+
+class JobAcceptedResponse(BaseModel):
+    job_id: str
+    status: str = "in_progress"
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    id: str
+    task: str
+    status: str
+    started_at: str
+    finished_at: Optional[str] = None
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+class AgentUsage(BaseModel):
+    """Token usage metadata from agent execution."""
+
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+class AgentResponse(BaseModel):
+    """Response from running a single agent."""
+
+    agent_name: str
+    message: Optional[str] = None
+    output: Optional[dict] = None
+    usage: Optional[AgentUsage] = None

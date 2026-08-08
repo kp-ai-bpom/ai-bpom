@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-def setup_logger(logger_name: str = "socialabs_ai_services") -> logging.Logger:
+def setup_logger(logger_name: str = "bpom_ai_service") -> logging.Logger:
     """
     Setup dasar untuk custom logger aplikasi.
     """
