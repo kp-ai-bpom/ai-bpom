@@ -1,4 +1,6 @@
+import asyncio
 import csv
+import logging
 import re
 from dataclasses import replace
 from functools import lru_cache
@@ -7,7 +9,22 @@ from typing import Any
 
 from app.core.llm import LLMAdapter
 
+logger = logging.getLogger(__name__)
+
 from ..repositories import ChatbotRepository
+from ..semantic_disambiguation.parsers import parse_detection_output
+from ..semantic_disambiguation.types import (
+    AmbiguityDetectionResult,
+    InterpretationOption,
+)
+from app.core.config import settings as app_settings
+from .schema_uq import SchemaUQResult, compute_schema_uq
+from .ambiguous_lexicon import build_clarification, match_ambiguous_term
+from .schema_interpretation import (
+    build_schema_interpretation_prompt,
+    format_schema_catalog,
+    parse_schema_interpretation,
+)
 from ..sql_generation_and_validation import SQLGenerator, get_sql_generator_config
 from ..sql_generation_and_validation import (
     SQLValidationService,
@@ -36,6 +53,10 @@ _COLUMN_ALIAS_STOPWORDS = {
 }
 
 _BASE_KNOWLEDGE_CSV_PATH = Path(__file__).resolve().parents[4] / "data" / "base_knowledge.csv"
+
+# Budget token untuk satu sample interpretasi-skema Stage 2 UQ. Interpretasi
+# adalah satu baris pemetaan ringkas, jadi tidak butuh banyak token.
+_SCHEMA_UQ_SAMPLE_MAX_TOKENS = 400
 
 
 def _normalize_alias_key(identifier: str) -> str:
@@ -192,6 +213,11 @@ class SemanticMemoryPipeline:
             retries=config.keyword_retries,
             llm_temperature=config.llm_temperature,
         )
+        # Dedicated embedding client (lazy) untuk Stage 2 UQ. Sengaja TIDAK pakai
+        # ``llm_adapter.embeddings`` (model vector-store knowledge entities)
+        # karena interpretasi skema di-embed dengan model NL keluarga kalibrasi
+        # UQ (``schema_uq_embedding_model``). Lihat ``_get_uq_embeddings``.
+        self._uq_embeddings: Any = None
         self._table_retriever = TableRetriever(
             llm_adapter=llm_adapter,
             repository=repository,
@@ -230,6 +256,34 @@ class SemanticMemoryPipeline:
                 schema_tables=schema_tables,
             )
 
+        # Schema-level keyword gate: drop tables in gated schemas unless
+        # the raw query OR any extracted keyword contains one of the
+        # schema's required terms. Suppresses noise from special-purpose
+        # schemas whose embeddings often nyangkut di Top-N untuk query
+        # generik (default: ``mantel`` cuma masuk kalau user nyebut
+        # "pool"). Applied BOTH before AND after FK closure: the BEFORE
+        # pass prevents a gated table from pulling its FK neighbors into
+        # the predicted set via closure; the AFTER pass prevents closure
+        # from re-introducing a gated table as a missing endpoint of
+        # some ungated table's FK edge. Architect review (May 2026)
+        # caught the bypass when only the BEFORE pass existed.
+        self._apply_schema_keyword_gate(predicted_tables, query, keywords)
+
+        # FK closure: for every documented FK edge that has exactly one
+        # endpoint in the predicted set, pull in the missing endpoint as a
+        # sentinel entry (score=0.0) carrying just its FK column at 1.0.
+        # This rescues join paths the retriever missed — e.g. when a query
+        # like "pegawai berpendidikan S2 + gelar + jabatan" surfaces
+        # ``jabatan_tm`` and ``V_PENDIDIKAN_TERAKHIR`` but not ``pegawai_tm``
+        # itself, the closure adds ``pegawai_tm`` back so its FK columns
+        # (``jabatan_id``, ``pendidikan_top_id``, …) become visible in the
+        # Stage 2 trace with proper ``FK→…`` badges.
+        if getattr(self._config, "auto_include_keys", False):
+            self._expand_predicted_via_fk_closure(predicted_tables)
+            # Re-apply gate: closure can introduce a gated-schema table
+            # as the missing endpoint of some ungated table's FK edge.
+            self._apply_schema_keyword_gate(predicted_tables, query, keywords)
+
         relevant_schema_tables = [
             table
             for table in schema_tables
@@ -257,12 +311,569 @@ class SemanticMemoryPipeline:
             table_descriptions=table_descriptions,
         )
 
+        join_graph, column_roles = await self._build_join_graph_and_roles(
+            predicted_tables=predicted_tables,
+        )
+
         return PreparedSchemaContext(
             keywords=keywords,
             predicted_tables=predicted_tables,
             context=context,
             schema_tables=schema_tables,
+            join_graph=join_graph,
+            column_roles=column_roles,
         )
+
+    def _get_uq_embeddings(self) -> Any:
+        """Lazy-init dedicated embedding client untuk interpretasi skema.
+
+        Sengaja TIDAK pakai ``llm_adapter.embeddings`` (model vector-store
+        knowledge entities) supaya parity dengan kalibrasi UQ
+        (``schema_uq_embedding_model``, default ``text-embedding-3-small``).
+        """
+        if self._uq_embeddings is None:
+            from langchain_openai import OpenAIEmbeddings
+            from pydantic import SecretStr
+
+            self._uq_embeddings = OpenAIEmbeddings(
+                model=self._config.schema_uq_embedding_model,
+                api_key=SecretStr(app_settings.OPENAI_API_KEY),
+                base_url=app_settings.AI_BASE_URL,
+            )
+            logger.info(
+                "schema_uq_embeddings_init",
+                extra={"model": self._config.schema_uq_embedding_model},
+            )
+        return self._uq_embeddings
+
+    async def _embed_interpretations(self, samples: list[str]) -> list[list[float]]:
+        """Embed interpretasi skema di worker thread (LangChain sync only)."""
+        loop = asyncio.get_running_loop()
+        client = self._get_uq_embeddings()
+
+        def _embed_all() -> list[list[float]]:
+            return [list(client.embed_query(s)) for s in samples]
+
+        try:
+            return await loop.run_in_executor(None, _embed_all)
+        except Exception:
+            logger.warning("schema_uq_embedding_failed", exc_info=True)
+            return []
+
+    async def _sample_schema_interpretation(
+        self, query: str, schema_catalog: str
+    ) -> str:
+        """Satu panggilan sampler interpretasi-skema @ T_SAMPLING.
+
+        Mengembalikan string ``interpretasi`` (pemetaan konsep→tabel/kolom)
+        atau string kosong bila gagal. String kosong diperlakukan sebagai
+        ``ERROR`` fingerprint di UQ — DISENGAJA mirror Stage 1.
+        """
+        prompt = build_schema_interpretation_prompt(query, schema_catalog)
+        try:
+            response = await asyncio.wait_for(
+                self._llm_adapter.instruct.bind(
+                    max_tokens=_SCHEMA_UQ_SAMPLE_MAX_TOKENS,
+                    temperature=float(self._config.schema_uq_t_sampling),
+                ).ainvoke(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Anda penginterpretasi skema. "
+                                "Keluarkan JSON valid saja sesuai format."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ]
+                ),
+                timeout=30,
+            )
+        except Exception:
+            logger.warning("schema_uq_sample_failed", exc_info=True)
+            return ""
+        content = str(getattr(response, "content", "") or "")
+        return parse_schema_interpretation(content)
+
+    async def assess_schema_uncertainty(
+        self, query: str, *, prepared: PreparedSchemaContext | None = None
+    ) -> SchemaUQResult:
+        """Stage 2 UQ: ukur ketidakpastian INTERPRETASI skema (bukan retrieval).
+
+        Skema candidate diretrieval SEKALI (oleh ``prepare_context``); hasilnya
+        (``prepared``) dipakai untuk membangun *katalog skema* level-kolom yang
+        diberikan ke sampler. Katalog memuat kolom konkret tabel kandidat (bukan
+        sekadar nama tabel, dan tanpa filter-similarity yang membuang kolom
+        alternatif) supaya istilah ambigu seperti "senior" punya alternatif
+        pemetaan yang benar-benar terlihat LLM. Tanpa grounding kolom ini, setiap
+        sample kolaps ke pemetaan tabel yang sama (H_norm=0, ambiguitas lolos).
+
+        Di sini LLM meng-generate ``M`` interpretasi skema (pemetaan konsep query
+        → kolom konkret) @ ``schema_uq_t_sampling`` (paralel), lalu interpretasi
+        tersebut di-embed dan di-cluster secara semantik (reuse
+        ``semantic_disambiguation/uq.py``). Bila interpretasi bercabang
+        (≥2 cluster interpretasi BERBEDA, ERROR dikecualikan) → minta
+        klarifikasi sebelum SQL. H_norm/τ_U tetap dilaporkan sebagai diagnostik
+        kontinu, tetapi keputusan klarifikasi memakai jumlah interpretasi —
+        bukan ambang entropi yang ter-normalisasi log(M) (lihat schema_uq.py).
+
+        Yang di-cluster adalah OUTPUT REASONING LLM (teks interpretasi), BUKAN
+        schema candidate maupun embedding tabel/kolom secara langsung.
+
+        Bila fitur dimatikan / query kosong → hasil netral (is_uncertain=False)
+        sehingga pemanggil bisa lanjut tanpa perubahan perilaku.
+        """
+        cfg = self._config
+        tau_u = float(cfg.schema_uq_tau_u)
+        query = (query or "").strip()
+        if not cfg.schema_uq_enabled or not query:
+            return SchemaUQResult(
+                enabled=bool(cfg.schema_uq_enabled),
+                h_norm=0.0,
+                tau_u=tau_u,
+                m_samples=0,
+                valid_samples=0,
+                unique_clusters=0,
+                majority_ratio=0.0,
+                is_uncertain=False,
+                representative_text="",
+                interpretations=[],
+                n_error=0,
+            )
+
+        m_total = int(cfg.schema_uq_m_sampling)
+
+        # Katalog skema level-kolom dari hasil retrieval. Tanpa ini sampler
+        # hanya melihat nama tabel (atau kolom ter-filter similarity) sehingga
+        # istilah ambigu kolaps ke pemetaan tabel yang sama di semua sample.
+        schema_catalog = ""
+        if prepared is not None:
+            schema_catalog = format_schema_catalog(
+                prepared.predicted_tables,
+                prepared.schema_tables,
+                prepared.column_roles,
+            )
+
+        # Step 1: M interpretasi paralel @ T_SAMPLING.
+        samples = await asyncio.gather(
+            *[
+                self._sample_schema_interpretation(query, schema_catalog)
+                for _ in range(m_total)
+            ]
+        )
+        valid_samples = [s for s in samples if s and s.strip()]
+
+        # Semua sample gagal → tidak ada apa pun untuk di-cluster. Short-circuit
+        # menghindari call embedding kosong; tetap konsisten (H_norm=0).
+        if not valid_samples:
+            logger.warning(
+                "schema_uq_degraded_no_samples", extra={"m_total": m_total}
+            )
+            return SchemaUQResult(
+                enabled=True,
+                h_norm=0.0,
+                tau_u=tau_u,
+                m_samples=m_total,
+                valid_samples=0,
+                unique_clusters=0,
+                majority_ratio=0.0,
+                is_uncertain=False,
+                representative_text="",
+                interpretations=[],
+                n_error=m_total,
+                degraded=True,
+                degraded_reason="sampling_failed",
+            )
+
+        # Step 2: embed interpretasi valid.
+        embeddings = await self._embed_interpretations(valid_samples)
+        if len(embeddings) != len(valid_samples) or not embeddings:
+            # Embedding gagal: jangan diam-diam jadi uncertain — fallback netral
+            # (confident) supaya pipeline lanjut tanpa klarifikasi palsu.
+            logger.warning("schema_uq_degraded_embedding_failed")
+            return SchemaUQResult(
+                enabled=True,
+                h_norm=0.0,
+                tau_u=tau_u,
+                m_samples=m_total,
+                valid_samples=len(valid_samples),
+                unique_clusters=1,
+                majority_ratio=1.0,
+                is_uncertain=False,
+                representative_text=valid_samples[0],
+                interpretations=[],
+                n_error=max(0, m_total - len(valid_samples)),
+                degraded=True,
+                degraded_reason="embedding_failed",
+            )
+
+        # Step 3: cluster + entropy via matematika Stage 1.
+        result = compute_schema_uq(
+            valid_samples,
+            embeddings,
+            m_total=m_total,
+            tau_cluster=float(cfg.schema_uq_tau_cluster),
+            tau_u=tau_u,
+            enabled=True,
+        )
+        logger.info(
+            "schema_uq_assessed",
+            extra={
+                "h_norm": round(result.h_norm, 4),
+                "tau_u": round(result.tau_u, 4),
+                "is_uncertain": result.is_uncertain,
+                "unique_clusters": result.unique_clusters,
+                "valid_samples": result.valid_samples,
+                "n_error": result.n_error,
+            },
+        )
+        return result
+
+    def _build_schema_clarification_prompt(
+        self,
+        query: str,
+        interpretations: list,
+        schema_context: str,
+    ) -> str:
+        lines: list[str] = []
+        for idx, it in enumerate(interpretations, start=1):
+            lines.append(f"- I{idx} (didukung {it.support} sampel): {it.text}")
+        interp_block = "\n".join(lines)
+        ctx = (schema_context or "").strip()
+        ctx_block = f"\n\nRingkasan skema relevan:\n{ctx[:1500]}" if ctx else ""
+        return (
+            "Pertanyaan pengguna terhadap basis data BPOM memiliki lebih dari "
+            "satu interpretasi skema yang sama-sama masuk akal (reasoning LLM "
+            "atas kandidat skema bercabang — mis. sebuah istilah bisa dipetakan "
+            "ke kolom yang berbeda). Tugas Anda: susun satu pertanyaan "
+            "klarifikasi singkat dalam Bahasa Indonesia yang membantu pengguna "
+            "memilih maksudnya, beserta opsi-opsi interpretasi.\n\n"
+            f"Pertanyaan pengguna:\n{query}\n\n"
+            f"Kandidat interpretasi (dari sampling reasoning skema):\n"
+            f"{interp_block}{ctx_block}\n\n"
+            "Keluarkan HANYA JSON valid dengan bentuk:\n"
+            "{\n"
+            '  "is_ambiguous": true,\n'
+            '  "ambiguity_type": "column",\n'
+            '  "clarification_question": "<pertanyaan klarifikasi ramah, tanpa istilah teknis>",\n'
+            '  "interpretation_options": [\n'
+            '    {"label": "<label singkat dalam bahasa bisnis>", "description": "<penjelasan data yang akan diambil>"}\n'
+            "  ]\n"
+            "}\n"
+            "Gunakan bahasa bisnis yang dapat dipahami pengguna non-teknis; "
+            "JANGAN menampilkan nama tabel/kolom mentah. Sertakan satu opsi per "
+            "interpretasi di atas."
+        )
+
+    def _fallback_schema_clarification(
+        self, interpretations: list
+    ) -> AmbiguityDetectionResult:
+        """Klarifikasi deterministik bila LLM gagal/JSON invalid.
+
+        UQ sudah memutuskan ambigu; JANGAN diam-diam balik jadi non-ambiguous.
+        Tawarkan teks interpretasi apa adanya sebagai opsi.
+        """
+        options: list[InterpretationOption] = []
+        seen: set[str] = set()
+        for idx, it in enumerate(interpretations[:4], start=1):
+            label = (it.text or f"Interpretasi {idx}").strip()[:120]
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            options.append(
+                InterpretationOption(label=label, description="")
+            )
+        return AmbiguityDetectionResult(
+            is_ambiguous=bool(options),
+            ambiguity_type="column",
+            clarification_question=(
+                "Pertanyaan Anda dapat diartikan dengan beberapa cara berbeda. "
+                "Mana yang Anda maksud?"
+            ),
+            interpretation_options=options,
+        )
+
+    async def generate_schema_clarification(
+        self,
+        query: str,
+        schema_uq: SchemaUQResult,
+        *,
+        schema_context: str = "",
+    ) -> AmbiguityDetectionResult:
+        """Bangun ``AmbiguityDetectionResult`` klarifikasi dari hasil UQ skema.
+
+        Telemetri UQ (h_norm, τ_U, m_samples, unique_clusters) di-inject ke
+        hasil sehingga jejak/UI ambiguity yang sudah ada otomatis menampilkan
+        sinyal Stage 2 tanpa perubahan downstream.
+        """
+        interpretations = schema_uq.interpretations[:4]
+        detection: AmbiguityDetectionResult | None = None
+        try:
+            prompt = self._build_schema_clarification_prompt(
+                query, interpretations, schema_context
+            )
+            response = await asyncio.wait_for(
+                self._llm_adapter.instruct.bind(
+                    max_tokens=768,
+                    temperature=0.0,
+                ).ainvoke(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Anda asisten data BPOM. Keluarkan JSON valid saja."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ]
+                ),
+                timeout=20,
+            )
+            content = str(getattr(response, "content", "") or "").strip()
+            detection = parse_detection_output(content)
+        except Exception:
+            logger.warning("schema_clarification_llm_failed", exc_info=True)
+            detection = None
+
+        if (
+            detection is None
+            or not detection.is_ambiguous
+            or not detection.interpretation_options
+        ):
+            detection = self._fallback_schema_clarification(interpretations)
+
+        return AmbiguityDetectionResult(
+            is_ambiguous=True,
+            ambiguity_type=detection.ambiguity_type or "column",
+            clarification_question=detection.clarification_question
+            or (
+                "Pertanyaan Anda dapat diartikan dengan beberapa cara berbeda. "
+                "Mana yang Anda maksud?"
+            ),
+            interpretation_options=detection.interpretation_options,
+            h_norm=schema_uq.h_norm,
+            tau_u=schema_uq.tau_u,
+            m_samples=schema_uq.m_samples,
+            unique_clusters=schema_uq.unique_clusters,
+        )
+
+    def build_lexicon_clarification(
+        self, query: str
+    ) -> tuple[str, AmbiguityDetectionResult] | None:
+        """Safeguard DETERMINISTIK (terpisah dari UQ): cek kamus istilah-ambigu.
+
+        Bila ``query`` memuat istilah domain yang memang ambigu (mis. "senior"),
+        kembalikan ``(istilah, klarifikasi)`` siap pakai — TANPA LLM. Dipakai oleh
+        pemanggil HANYA ketika UQ tidak memicu klarifikasi, untuk MENJAMIN kueri
+        ambigu tetap diklarifikasi. Mengembalikan ``None`` bila fitur dimatikan
+        atau tidak ada istilah yang cocok. Verdict UQ tidak diubah olehnya.
+        """
+        if not getattr(self._config, "ambiguous_lexicon_enabled", True):
+            return None
+        entry = match_ambiguous_term(query)
+        if entry is None:
+            return None
+        return str(entry["term"]), build_clarification(entry)
+
+    def _apply_schema_keyword_gate(
+        self,
+        predicted_tables: dict[str, "RetrievedTable"],
+        query: str,
+        keywords: list[str],
+    ) -> None:
+        """Drop tables whose schema is gated and whose required keyword
+        is not present in the query or any extracted keyword. In-place.
+        Idempotent — safe to call multiple times.
+        """
+        gates = getattr(self._config, "schema_keyword_gates", None) or {}
+        if not gates or not predicted_tables:
+            return
+        haystack = " ".join([query, *keywords]).lower()
+        dropped: list[str] = []
+        for table_key in list(predicted_tables.keys()):
+            if "." not in table_key:
+                continue
+            schema_name = table_key.split(".", 1)[0]
+            required = gates.get(schema_name)
+            if not required:
+                continue
+            if any(term in haystack for term in required):
+                continue
+            del predicted_tables[table_key]
+            dropped.append(table_key)
+        if dropped:
+            logger.info(
+                "schema_keyword_gate_dropped",
+                extra={"dropped_tables": dropped, "gates": gates},
+            )
+
+    def _expand_predicted_via_fk_closure(
+        self,
+        predicted_tables: dict[str, "RetrievedTable"],
+    ) -> None:
+        """Mutate ``predicted_tables`` in place, adding missing endpoints
+        of any documented FK edge with exactly one endpoint already in the
+        set.
+
+        Newly-added tables get ``score=0.0`` as a sentinel (clearly below
+        any retrieval threshold) so the Stage 2 trace can distinguish them
+        from semantically-retrieved tables. Their ``column_scores`` start
+        with just the FK column at 1.0 so the downstream role mapper
+        labels it ``FK→<target>``.
+
+        Only documented edges (parsed from ``base_knowledge_rasl.csv``) are
+        used for closure — they reflect the curated relations the user
+        explicitly described, which is the right semantic level for "pull
+        in the obvious neighbor". This avoids an extra DB round-trip and
+        keeps the expansion deterministic.
+        """
+        from .fk_graph import build_fk_graph  # local import to avoid cycles
+
+        if not predicted_tables:
+            return
+
+        fk_graph = build_fk_graph(
+            allowed_tables=self._config.allowed_tables,
+            inferred_edges=[],
+        )
+
+        predicted_keys = set(predicted_tables.keys())
+
+        for edge in fk_graph.iter_edges():
+            from_in = edge.from_table in predicted_keys
+            to_in = edge.to_table in predicted_keys
+            if from_in == to_in:
+                # Both endpoints already in (edge contributes to join_graph
+                # via the existing path) or both out (no anchor in the
+                # retrieved set, would be a wild guess to pull in).
+                continue
+
+            missing_table = edge.to_table if from_in else edge.from_table
+            missing_col = edge.to_column if from_in else edge.from_column
+
+            if missing_table in predicted_tables:
+                # Already pulled in by an earlier edge in this loop — just
+                # ensure this FK column is also surfaced at score 1.0.
+                existing = predicted_tables[missing_table]
+                col_scores = dict(existing.column_scores or {})
+                if col_scores.get(missing_col, 0.0) < 1.0:
+                    col_scores[missing_col] = 1.0
+                    predicted_tables[missing_table] = replace(
+                        existing, column_scores=col_scores
+                    )
+                continue
+
+            if "." not in missing_table:
+                continue
+            schema_name, table_name = missing_table.split(".", 1)
+            predicted_tables[missing_table] = RetrievedTable(
+                schema=schema_name,
+                table=table_name,
+                score=0.0,
+                column_scores={missing_col: 1.0},
+            )
+
+    async def _build_join_graph_and_roles(
+        self,
+        *,
+        predicted_tables: dict[str, "RetrievedTable"],
+    ) -> tuple[list[dict[str, str]], dict[str, dict[str, str]]]:
+        """Build ``(join_graph, column_roles)`` for the Stage 2 trace output.
+
+        - ``join_graph``: edges (documented + inferred) whose both endpoints
+          are in the predicted-table set.
+        - ``column_roles``: ``{table_key: {col: role}}`` where role is one of
+          ``"PK"`` / ``"FK→<target>"`` / ``"display"``.
+
+        Both pieces are computed here so that all four callers of
+        :py:meth:`prepare_context` get them for free without re-fetching the
+        repository — and downstream stage-trace builders stay pure.
+        """
+        from .fk_graph import build_fk_graph  # local import to avoid cycles
+
+        predicted_keys: set[str] = set(predicted_tables.keys())
+        if not predicted_keys:
+            return [], {}
+
+        allowed_for_predicted: dict[str, list[str]] = {}
+        for key in predicted_keys:
+            if "." not in key:
+                continue
+            schema_name, table_name = key.split(".", 1)
+            allowed_for_predicted.setdefault(schema_name, []).append(table_name)
+
+        try:
+            inferred_edges = await self._repository.get_foreign_key_edges(
+                allowed_for_predicted
+            )
+        except Exception:
+            inferred_edges = []
+
+        try:
+            key_columns = await self._repository.get_table_key_columns(
+                allowed_for_predicted
+            )
+        except Exception:
+            key_columns = {}
+
+        fk_graph = build_fk_graph(
+            allowed_tables=self._config.allowed_tables,
+            inferred_edges=inferred_edges,
+        )
+
+        join_graph = [edge.to_dict() for edge in fk_graph.edges_within(predicted_keys)]
+
+        # Inject every FK origin column known to fk_graph (documented +
+        # inferred) into the predicted table's ``column_scores`` at 1.0,
+        # so that logical-only FKs (declared in base_knowledge entity_text
+        # but without a formal information_schema constraint — e.g.
+        # ``pegawai_tm.jabatan_id``, ``satker_top_id``, ``eselon_id``,
+        # ``pendidikan_top_id``) become visible in the Stage 2 trace with
+        # the same ``FK→…`` badge as formal FKs. Without this step the
+        # column never lands in ``column_scores`` (semantic retrieval
+        # rarely surfaces ID columns), so the join-graph edge appears in
+        # the Join Path panel while the source-side column silently goes
+        # un-labelled — confusing for users inspecting the trace.
+        #
+        # Gated behind ``auto_include_keys`` to match the existing
+        # information_schema-based injection in ``TableRetriever``.
+        if getattr(self._config, "auto_include_keys", False):
+            for edge in fk_graph.edges_within(predicted_keys):
+                origin = predicted_tables.get(edge.from_table)
+                if origin is None:
+                    continue
+                col_scores = dict(origin.column_scores or {})
+                if col_scores.get(edge.from_column, 0.0) >= 1.0:
+                    continue
+                col_scores[edge.from_column] = 1.0
+                predicted_tables[edge.from_table] = replace(
+                    origin, column_scores=col_scores
+                )
+
+        # Build per-column role map. Priority within one column:
+        #   FK > PK > display. (A column can technically be both PK and FK
+        # in a junction table — surface FK so the join is visible.)
+        column_roles: dict[str, dict[str, str]] = {}
+        for table_key, retrieved in predicted_tables.items():
+            roles: dict[str, str] = {}
+            key_col_set = {c.lower() for c in key_columns.get(table_key, set())}
+            for col_name, score in (retrieved.column_scores or {}).items():
+                fk_role = fk_graph.role_for(table_key, col_name)
+                if fk_role:
+                    roles[col_name] = fk_role
+                    continue
+                if col_name.lower() in key_col_set:
+                    roles[col_name] = "PK"
+                    continue
+                # Display columns are injected by the retriever at score=0.99
+                # exactly (see TableRetriever._inject_display_columns). Use a
+                # tolerant compare to avoid floating-point surprises.
+                if abs(float(score) - 0.99) < 1e-6:
+                    roles[col_name] = "display"
+            if roles:
+                column_roles[table_key] = roles
+
+        return join_graph, column_roles
 
     async def run_from_prepared(
         self,

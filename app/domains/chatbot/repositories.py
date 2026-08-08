@@ -228,6 +228,10 @@ class ChatbotRepository:
             )
             """,
             f"""
+            ALTER TABLE {_PENDING_CLARIFICATIONS_TABLE}
+            ADD COLUMN IF NOT EXISTS pipeline_trace_snapshot JSONB
+            """,
+            f"""
             CREATE INDEX IF NOT EXISTS idx_chat_pending_user_session
             ON {_PENDING_CLARIFICATIONS_TABLE} (user_id, session_id)
             """,
@@ -673,7 +677,15 @@ class ChatbotRepository:
         options: list[dict[str, Any]] | list[str],
         ambiguity_type: str,
         expires_at: datetime,
+        pipeline_trace_snapshot: list[dict[str, Any]] | None = None,
     ) -> str:
+        """Persist pending clarification + snapshot of stages already executed.
+
+        ``pipeline_trace_snapshot`` adalah ``recorder.to_payload()`` di akhir
+        turn ASK. Saat resume, snapshot ini di-merge dengan trace turn resume
+        supaya UI bisa menampilkan IPO utuh 5-stage walaupun stage 1+2 (atau
+        stage 1 saja untuk dangling case) sebenarnya dijalankan di turn lain.
+        """
         pending_id = str(uuid4())
         query = text(
             f"""
@@ -689,7 +701,8 @@ class ChatbotRepository:
                     options,
                     ambiguity_type,
                     created_at,
-                    expires_at
+                    expires_at,
+                    pipeline_trace_snapshot
                 )
             VALUES
                 (
@@ -703,7 +716,8 @@ class ChatbotRepository:
                     CAST(:options AS JSONB),
                     :ambiguity_type,
                     NOW(),
-                    :expires_at
+                    :expires_at,
+                    CAST(:pipeline_trace_snapshot AS JSONB)
                 )
             """
         )
@@ -719,6 +733,11 @@ class ChatbotRepository:
             "options": json.dumps(options, ensure_ascii=True),
             "ambiguity_type": ambiguity_type,
             "expires_at": expires_at,
+            "pipeline_trace_snapshot": (
+                json.dumps(pipeline_trace_snapshot, ensure_ascii=True)
+                if pipeline_trace_snapshot is not None
+                else None
+            ),
         }
 
         try:
@@ -749,7 +768,8 @@ class ChatbotRepository:
                 options,
                 ambiguity_type,
                 created_at,
-                expires_at
+                expires_at,
+                pipeline_trace_snapshot
             FROM {_PENDING_CLARIFICATIONS_TABLE}
             WHERE user_id = :user_id
               AND session_id = :session_id
@@ -793,7 +813,8 @@ class ChatbotRepository:
                 options,
                 ambiguity_type,
                 created_at,
-                expires_at
+                expires_at,
+                pipeline_trace_snapshot
             FROM {_PENDING_CLARIFICATIONS_TABLE}
             WHERE pending_id = :pending_id
               AND user_id = :user_id
@@ -1765,6 +1786,165 @@ class ChatbotRepository:
             await self._db.execute(query, {"vec": vector_literal, "k": int(top_k)})
         ).mappings().all()
         return [dict(row) for row in rows]
+
+    async def get_table_key_columns(
+        self,
+        allowed_tables: dict[str, list[str]],
+    ) -> dict[str, set[str]]:
+        """Return mapping ``schema.table -> {column_names}`` for PRIMARY KEY
+        and FOREIGN KEY columns of the given allowed tables.
+
+        Used by ``TableRetriever`` when ``auto_include_keys=True`` to inject
+        join/identity keys into retrieved column sets so downstream Stage 4
+        (SQL generation) never misses a JOIN/PK reference even when the
+        vector search did not surface it.
+        """
+        if not allowed_tables:
+            return {}
+
+        schema_names = [s for s in allowed_tables if s]
+        if not schema_names:
+            return {}
+
+        placeholders = ", ".join(f":s{i}" for i in range(len(schema_names)))
+        params: dict[str, Any] = {f"s{i}": name for i, name in enumerate(schema_names)}
+
+        query = text(
+            f"""
+            SELECT
+                tc.table_schema,
+                tc.table_name,
+                kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            WHERE tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
+              AND tc.table_schema IN ({placeholders})
+            """
+        )
+
+        rows = (await self._db.execute(query, params)).mappings().all()
+
+        result: dict[str, set[str]] = {}
+        for row in rows:
+            schema_name = str(row["table_schema"])
+            table_name = str(row["table_name"])
+            if table_name not in allowed_tables.get(schema_name, []):
+                continue
+            key = f"{schema_name}.{table_name}"
+            result.setdefault(key, set()).add(str(row["column_name"]))
+
+        # Augment dengan override dari config (Task #58). Penting untuk
+        # tabel tanpa PRIMARY KEY constraint formal (mis. SIAP_SATKER_TOP
+        # yang di-import dari dump tanpa deklarasi PK). Override TIDAK
+        # menggantikan hasil information_schema — hanya menambah, sehingga
+        # tabel ber-constraint normal tetap utuh.
+        try:
+            from app.domains.chatbot.database_schema_filtering.config import (
+                get_semantic_memory_config,
+            )
+
+            override = get_semantic_memory_config().key_cols_override or {}
+        except Exception:  # pragma: no cover - config harus selalu loadable
+            override = {}
+
+        applied = 0
+        for table_key, cols in override.items():
+            if "." not in table_key:
+                continue
+            schema_name, table_name = table_key.split(".", 1)
+            if table_name not in allowed_tables.get(schema_name, []):
+                continue
+            bucket = result.setdefault(table_key, set())
+            before = len(bucket)
+            for col in cols:
+                bucket.add(col)
+            if len(bucket) > before:
+                applied += 1
+
+        if applied:
+            log.info(
+                "[get_table_key_columns] applied %d override entries", applied
+            )
+
+        return result
+
+    async def get_foreign_key_edges(
+        self,
+        allowed_tables: dict[str, list[str]],
+    ) -> list[dict[str, str]]:
+        """Return the structural FK edges declared in ``information_schema``.
+
+        Each edge is a dict ``{from_table, from_column, to_table, to_column}``
+        where ``*_table`` is ``schema.table`` and ``*_column`` is the bare
+        column name. Only edges where BOTH endpoints fall within
+        ``allowed_tables`` are returned — Stage 2 has no business surfacing
+        joins to tables the retriever can never see.
+
+        Used by the Stage 2 trace builder to merge with the documented FK
+        edges parsed from ``base_knowledge_rasl.csv`` (see ``fk_graph.py``).
+        """
+        if not allowed_tables:
+            return []
+
+        schema_names = [s for s in allowed_tables if s]
+        if not schema_names:
+            return []
+
+        placeholders = ", ".join(f":s{i}" for i in range(len(schema_names)))
+        params: dict[str, Any] = {f"s{i}": name for i, name in enumerate(schema_names)}
+
+        query = text(
+            f"""
+            SELECT
+                tc.table_schema AS from_schema,
+                tc.table_name   AS from_table,
+                kcu.column_name AS from_column,
+                ccu.table_schema AS to_schema,
+                ccu.table_name   AS to_table,
+                ccu.column_name  AS to_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema IN ({placeholders})
+            """
+        )
+
+        try:
+            rows = (await self._db.execute(query, params)).mappings().all()
+        except SQLAlchemyError as exc:
+            log.warning(
+                "[get_foreign_key_edges] query failed, returning empty: %s", exc
+            )
+            return []
+
+        edges: list[dict[str, str]] = []
+        for row in rows:
+            from_schema = str(row["from_schema"])
+            from_table = str(row["from_table"])
+            to_schema = str(row["to_schema"])
+            to_table = str(row["to_table"])
+            if from_table not in allowed_tables.get(from_schema, []):
+                continue
+            if to_table not in allowed_tables.get(to_schema, []):
+                continue
+            edges.append(
+                {
+                    "from_table": f"{from_schema}.{from_table}",
+                    "from_column": str(row["from_column"]),
+                    "to_table": f"{to_schema}.{to_table}",
+                    "to_column": str(row["to_column"]),
+                }
+            )
+        return edges
 
     async def get_vector_table_embedding_dimensions(self, vector_table: str) -> int | None:
         _safe_table_reference(vector_table)

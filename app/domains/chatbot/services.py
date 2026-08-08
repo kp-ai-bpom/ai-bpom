@@ -98,6 +98,7 @@ class _PipelineTraceRecorder:
     STAGE_LABELS: dict[str, str] = {
         "question_rewriting": "Stage 1 — Question Rewriting",
         "schema_retrieval": "Stage 2 — Schema Retrieval (Semantic Memory)",
+        "schema_uq": "Stage 2b — Schema Interpretation UQ",
         "ambiguity_detection": "Stage 3 — Ambiguity Detection & Clarification",
         "sql_generation": "Stage 4 — SQL Generation",
         "sql_validation": "Stage 5 — SQL Validation",
@@ -195,30 +196,194 @@ class _PipelineTraceRecorder:
         return [dict(entry) for entry in self._entries]
 
 
+_PIPELINE_STAGE_ORDER: tuple[str, ...] = (
+    "question_rewriting",
+    "schema_retrieval",
+    "schema_uq",
+    "ambiguity_detection",
+    "sql_generation",
+    "sql_validation",
+)
+
+
+def _merge_pipeline_traces(
+    snapshot: list[dict[str, Any]] | None,
+    current: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge trace turn ASK (snapshot) dengan trace turn RESUME (current).
+
+    Aturan merge per-stage:
+    1. Bila stage *executed* di ``current`` (turn ini), pakai entry tsb.
+    2. Else bila stage *executed* di ``snapshot`` (turn klarifikasi sebelumnya),
+       pakai entry snapshot + tandai ``metadata.replayed_from_clarification_turn``
+       supaya UI bisa render badge "(direplay dari turn klarifikasi)".
+    3. Else fall back ke entry ``current`` (biasanya skipped), lalu snapshot,
+       lalu ``None`` (stage tidak ada di kedua trace).
+
+    Hasil di-urut menurut ``_PIPELINE_STAGE_ORDER`` supaya UI selalu
+    menampilkan Stage 1 → 5 berurutan, tidak peduli urutan eksekusi internal.
+    Entry untuk stage lain (di luar 5 stage utama) di-append di akhir
+    mengikuti urutan ``current`` lalu ``snapshot`` (defensive).
+    """
+    by_snapshot: dict[str, dict[str, Any]] = {
+        entry["stage"]: entry for entry in (snapshot or []) if entry.get("stage")
+    }
+    by_current: dict[str, dict[str, Any]] = {
+        entry["stage"]: entry for entry in current if entry.get("stage")
+    }
+
+    merged: list[dict[str, Any]] = []
+    consumed: set[str] = set()
+    for stage_id in _PIPELINE_STAGE_ORDER:
+        snap = by_snapshot.get(stage_id)
+        curr = by_current.get(stage_id)
+        chosen: dict[str, Any] | None = None
+        is_replay = False
+        if curr is not None and curr.get("status") == "executed":
+            chosen = dict(curr)
+        elif snap is not None and snap.get("status") == "executed":
+            chosen = dict(snap)
+            is_replay = True
+        elif curr is not None:
+            chosen = dict(curr)
+        elif snap is not None:
+            chosen = dict(snap)
+            is_replay = True
+        if chosen is None:
+            continue
+        if is_replay:
+            md = dict(chosen.get("metadata") or {})
+            md["replayed_from_clarification_turn"] = True
+            chosen["metadata"] = md
+        merged.append(chosen)
+        consumed.add(stage_id)
+
+    for entry in current:
+        sid = entry.get("stage")
+        if sid and sid not in consumed:
+            merged.append(dict(entry))
+            consumed.add(sid)
+    for entry in snapshot or []:
+        sid = entry.get("stage")
+        if sid and sid not in consumed:
+            replay_entry = dict(entry)
+            md = dict(replay_entry.get("metadata") or {})
+            md["replayed_from_clarification_turn"] = True
+            replay_entry["metadata"] = md
+            merged.append(replay_entry)
+            consumed.add(sid)
+    return merged
+
+
 def _summarize_predicted_tables(
     predicted_tables: dict[str, "RetrievedTable"],
     *,
     top_n: int = 5,
-    top_columns: int = 5,
+    top_columns: int = 8,
+    column_roles: dict[str, dict[str, str]] | None = None,
+    tau_column: float = 0.30,
 ) -> list[dict[str, Any]]:
-    """Bentuk ringkasan tabel prediksi untuk payload trace (top-N + kolom teratas)."""
-    items = []
+    """Bentuk ringkasan tabel prediksi untuk payload trace Stage 2.
+
+    Berbeda dari versi lama yang hanya menampilkan nama kolom teratas,
+    versi ini mengembalikan **per-kolom**: ``name``, ``score``, ``kept``
+    (boolean — apakah lolos τ_column ATAU kolom kunci), dan ``role``
+    (``"PK"`` / ``"FK→<target>"`` / ``"display"`` bila tersedia).
+
+    Parameter:
+        column_roles: peta peran kolom dari
+            :py:meth:`SemanticMemoryPipeline._build_join_graph_and_roles`.
+            Dilewatkan dari ``PreparedSchemaContext.column_roles``.
+        tau_column: ambang skor kolom (dari konfigurasi pipeline, default
+            ``0.30`` pada operating point ter-freeze). Dipakai untuk
+            menghitung field ``kept`` per kolom.
+
+    Output urut menurut skor tabel desc dan dipotong ``top_n``. Per tabel,
+    kolom diurut menurut skor desc (kolom dengan role tetap muncul, walau
+    skor rendah).
+    """
+    column_roles = column_roles or {}
+    items: list[dict[str, Any]] = []
     for value in predicted_tables.values():
-        column_items = sorted(
-            (value.column_scores or {}).items(),
-            key=lambda kv: kv[1],
-            reverse=True,
-        )[:top_columns]
+        table_key = f"{value.schema}.{value.table}"
+        roles_for_table = column_roles.get(table_key, {})
+        scores = value.column_scores or {}
+
+        sorted_cols = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        col_entries: list[dict[str, Any]] = []
+        for name, score in sorted_cols[:top_columns]:
+            score_f = round(float(score or 0.0), 4)
+            role = roles_for_table.get(name)
+            kept = score_f >= float(tau_column) or role is not None
+            entry: dict[str, Any] = {
+                "name": name,
+                "score": score_f,
+                "kept": bool(kept),
+            }
+            if role:
+                entry["role"] = role
+            col_entries.append(entry)
+
         items.append(
             {
                 "schema": value.schema,
                 "table": value.table,
                 "score": round(float(value.score or 0.0), 4),
-                "top_columns": [name for name, _score in column_items],
+                "columns": col_entries,
+                # Backward-compat: konsumen lama yang membaca ``top_columns``
+                # (list nama saja) tetap dilayani.
+                "top_columns": [e["name"] for e in col_entries[:5]],
             }
         )
     items.sort(key=lambda item: item["score"], reverse=True)
     return items[:top_n]
+
+
+def _build_schema_retrieval_output(
+    prepared: "PreparedSchemaContext",
+    *,
+    include_context_excerpt: bool = False,
+    include_context_chars: bool = False,
+) -> dict[str, Any]:
+    """Bentuk payload ``output`` lengkap untuk stage ``schema_retrieval``.
+
+    Mengandung tiga blok yang dipakai UI Stage 2:
+
+    - ``config``: ``{K, tau_table, tau_column}`` — operating point pipeline,
+      ditarik dari ``get_semantic_memory_config()`` (frozen K=30,
+      τ_table=0.40, τ_column=0.30 per kesepakatan iterasi terbaru).
+    - ``predicted_tables``: list tabel terprediksi + per-kolom
+      ``{name, score, kept, role}`` (lihat
+      :py:func:`_summarize_predicted_tables`).
+    - ``join_graph``: edge FK antar tabel prediksi, tiap edge berlabel
+      ``source="documented"|"inferred"`` (lihat
+      ``database_schema_filtering/fk_graph.py``).
+
+    Field tambahan (``keywords``, dan opsional ``schema_context_chars``
+    atau ``schema_context_excerpt``) di-include untuk konsistensi dengan
+    payload lama.
+    """
+    cfg = get_semantic_memory_config()
+    column_roles = getattr(prepared, "column_roles", {}) or {}
+    payload: dict[str, Any] = {
+        "config": {
+            "N": int(cfg.top_n_per_keyword),
+            "tau_table": round(float(cfg.retrieval_threshold), 4),
+            "tau_column": round(float(cfg.column_similarity_threshold), 4),
+        },
+        "predicted_tables": _summarize_predicted_tables(
+            prepared.predicted_tables,
+            column_roles=column_roles,
+            tau_column=float(cfg.column_similarity_threshold),
+        ),
+        "join_graph": list(getattr(prepared, "join_graph", []) or []),
+        "keywords": prepared.keywords,
+    }
+    if include_context_chars:
+        payload["schema_context_chars"] = len(prepared.context or "")
+    if include_context_excerpt:
+        payload["schema_context_excerpt"] = (prepared.context or "")[:500]
+    return payload
 
 
 def _build_validation_stage_payload(
@@ -843,15 +1008,28 @@ class ChatbotService:
             schema_tables = (
                 schema_tables_payload if isinstance(schema_tables_payload, list) else []
             )
+            prepared_keywords = [
+                str(item).strip()
+                for item in (relevant_schema_payload.get("keywords") or [])
+                if str(item).strip()
+            ]
+            prepared_context = str(pending.get("schema_context") or "")
             prepared = PreparedSchemaContext(
-                keywords=[
-                    str(item).strip()
-                    for item in (relevant_schema_payload.get("keywords") or [])
-                    if str(item).strip()
-                ],
+                keywords=prepared_keywords,
                 predicted_tables=predicted_tables,
-                context=str(pending.get("schema_context") or ""),
+                context=prepared_context,
                 schema_tables=schema_tables,
+            )
+            # Deteksi *dangling case*: pending dibuat oleh short-circuit Stage 1
+            # (lihat blok ``stage1_uq_signal.verdict == "ambiguous"`` jauh di
+            # bawah). Pada kasus ini Stage 2 (schema retrieval) belum pernah
+            # jalan, sehingga ``relevant_schema`` di pending kosong. Tanpa
+            # deteksi ini, Stage 4 (SQL generation) dipanggil dengan schema
+            # context kosong → SQL hallucinate / gagal validasi.
+            needs_fresh_schema_retrieval = (
+                not prepared_context
+                and not prepared.predicted_tables
+                and not prepared.schema_tables
             )
 
             unambiguous_question = refine_result.unambiguous_question
@@ -867,24 +1045,54 @@ class ChatbotService:
                         f"{unambiguous_question} (klarifikasi user: {user_response_norm})"
                     )
 
-            # Trace stages 1-2: dieksekusi pada turn sebelumnya saat
-            # clarification dibuat. Stage 3 sekarang merupakan refinement
-            # berdasarkan jawaban user.
+            # Stage 1 selalu skip di resume: rewriting dilakukan pada turn ASK.
+            # Snapshot turn ASK akan menyediakan IPO Stage 1 saat di-merge.
             recorder.skip(
                 "question_rewriting",
                 "Dilewati: turn ini adalah lanjutan klarifikasi (stage 1 telah "
                 "dijalankan pada turn sebelumnya)",
             )
-            recorder.skip(
-                "schema_retrieval",
-                "Dilewati: skema relevan dimuat ulang dari pending clarification "
-                "(stage 2 telah dijalankan pada turn sebelumnya)",
-                metadata={
-                    "schema_context_chars": len(prepared.context or ""),
-                    "predicted_tables_count": len(prepared.predicted_tables),
-                    "keywords": prepared.keywords,
-                },
-            )
+            if needs_fresh_schema_retrieval:
+                # Dangling case: Stage 2 BELUM pernah jalan. Jalankan sekarang
+                # dengan ``unambiguous_question`` (hasil refine) sebagai query
+                # retrieval supaya Stage 4 punya schema context yang benar.
+                with recorder.stage("schema_retrieval") as _stage:
+                    _stage.set_input(
+                        {
+                            "query_for_retrieval": unambiguous_question,
+                            "source": (
+                                "fresh retrieval pada turn resume — dangling "
+                                "reference dari Stage 1 turn sebelumnya"
+                            ),
+                        }
+                    )
+                    prepared = await self._semantic_pipeline.prepare_context(
+                        unambiguous_question
+                    )
+                    _stage.set_output(
+                        _build_schema_retrieval_output(
+                            prepared, include_context_chars=True
+                        )
+                    )
+                    _stage.set_summary(
+                        f"{len(prepared.predicted_tables)} tabel di-retrieve "
+                        f"({len(prepared.context or '')} karakter konteks)"
+                    )
+            else:
+                # Scope/role/temporal case: Stage 2 sudah dijalankan turn ASK,
+                # hasilnya tersimpan di pending. Skip di sini; snapshot turn
+                # ASK akan menyediakan IPO Stage 2 saat di-merge.
+                recorder.skip(
+                    "schema_retrieval",
+                    "Dilewati: skema relevan dimuat ulang dari pending "
+                    "clarification (stage 2 telah dijalankan pada turn "
+                    "sebelumnya)",
+                    metadata={
+                        "schema_context_chars": len(prepared.context or ""),
+                        "predicted_tables_count": len(prepared.predicted_tables),
+                        "keywords": prepared.keywords,
+                    },
+                )
             recorder.record_post_hoc(
                 "ambiguity_detection",
                 status="executed",
@@ -958,7 +1166,18 @@ class ChatbotService:
                     )
                 },
             )
-            pipeline_trace_payload = recorder.to_payload()
+            # Merge trace turn ASK (Stage 1 — atau Stage 1+2+3 untuk scope
+            # case) ke trace turn resume supaya UI menampilkan IPO utuh 5
+            # stage. Tanpa merge ini, Stage 1 (dan Stage 2 untuk non-dangling
+            # case) hanya muncul sebagai "skipped" karena recorder turn ini
+            # tidak mengeksekusinya ulang.
+            _trace_snapshot_raw = pending.get("pipeline_trace_snapshot")
+            _trace_snapshot = self._parse_json_payload(_trace_snapshot_raw)
+            if not isinstance(_trace_snapshot, list):
+                _trace_snapshot = None
+            pipeline_trace_payload = _merge_pipeline_traces(
+                _trace_snapshot, recorder.to_payload()
+            )
 
             await self._repository.delete_pending_clarification(
                 pending.get("pending_id") or ""
@@ -1061,13 +1280,9 @@ class ChatbotService:
                     _stage.set_input({"query_for_retrieval": canonical})
                     prepared = await self._semantic_pipeline.prepare_context(canonical)
                     _stage.set_output(
-                        {
-                            "predicted_tables": _summarize_predicted_tables(
-                                prepared.predicted_tables
-                            ),
-                            "keywords": prepared.keywords,
-                            "schema_context_excerpt": (prepared.context or "")[:500],
-                        }
+                        _build_schema_retrieval_output(
+                            prepared, include_context_excerpt=True
+                        )
                     )
                     _stage.set_summary(
                         f"{len(prepared.predicted_tables)} tabel relevan ditemukan"
@@ -1324,6 +1539,12 @@ class ChatbotService:
                 _pending_expires_at = datetime.now(timezone.utc) + timedelta(
                     seconds=self._ambiguity_config.session_ttl_seconds
                 )
+                # Snapshot trace turn ASK: hanya Stage 1 yang benar-benar
+                # executed; stage 2-5 di-skip (lihat blok di atas) karena
+                # short-circuit dangling. Saat resume, merge logic akan
+                # mengganti skip-skip ini dengan eksekusi nyata (Stage 2 fresh
+                # + Stage 3 refine + Stage 4 + Stage 5).
+                _ask_trace_snapshot = recorder.to_payload()
                 _pending_id = await self._repository.create_pending_clarification(
                     user_id=normalized_user_id,
                     session_id=resolved_session_id,
@@ -1338,6 +1559,7 @@ class ChatbotService:
                     options=_opts_payload_db,
                     ambiguity_type="scope",
                     expires_at=_pending_expires_at,
+                    pipeline_trace_snapshot=_ask_trace_snapshot,
                 )
                 await self._save_ambiguity_metadata(
                     user_id=normalized_user_id,
@@ -1382,13 +1604,9 @@ class ChatbotService:
             _stage.set_input({"query_for_retrieval": standalone_query})
             prepared = await self._semantic_pipeline.prepare_context(standalone_query)
             _stage.set_output(
-                {
-                    "predicted_tables": _summarize_predicted_tables(
-                        prepared.predicted_tables
-                    ),
-                    "keywords": prepared.keywords,
-                    "schema_context_excerpt": (prepared.context or "")[:500],
-                }
+                _build_schema_retrieval_output(
+                    prepared, include_context_excerpt=True
+                )
             )
             _stage.set_summary(
                 f"{len(prepared.predicted_tables)} tabel relevan ditemukan"
@@ -1404,12 +1622,91 @@ class ChatbotService:
                 max_turns=self._ambiguity_config.max_history_turns,
             )
 
+        # ── Stage 2 UQ: multiple-interpretation schema uncertainty ──
+        # Skema candidate sudah diretrieval SEKALI di atas (``prepared``). Di
+        # sini LLM meng-generate M interpretasi skema (pemetaan konsep query →
+        # tabel/kolom kandidat) @ T>0 → embed teks interpretasi → cluster
+        # semantik → entropy gate τ_U. Bila interpretasi bercabang ke >1 yang
+        # sama-sama masuk akal, langsung minta klarifikasi (short-circuit
+        # Stage 3 LLM detection). Yang di-cluster adalah OUTPUT reasoning LLM,
+        # bukan schema candidate/embedding tabel. Dilewati saat ablate_ambiguity
+        # (eval) atau fitur nonaktif.
+        schema_clarification: AmbiguityDetectionResult | None = None
+        schema_clarification_source: str | None = None
+        if not ablate_ambiguity:
+            # Safeguard DETERMINISTIK (terpisah dari UQ): bila query memuat istilah
+            # domain yang memang ambigu (mis. "senior"), kita JAMIN klarifikasi
+            # walau sampler UQ konvergen. Verdict UQ tetap dilaporkan apa adanya.
+            lexicon_match = self._semantic_pipeline.build_lexicon_clarification(
+                standalone_query
+            )
+            lexicon_term = lexicon_match[0] if lexicon_match else None
+            lexicon_clar = lexicon_match[1] if lexicon_match else None
+
+            with recorder.stage("schema_uq") as _stage:
+                _stage.set_input({"query": standalone_query})
+                schema_uq_result = (
+                    await self._semantic_pipeline.assess_schema_uncertainty(
+                        standalone_query,
+                        prepared=prepared,
+                    )
+                )
+                _stage.set_output(schema_uq_result.to_metadata())
+                if schema_uq_result.is_uncertain:
+                    _stage.set_summary(
+                        f"Interpretasi skema bercabang → minta klarifikasi "
+                        f"({schema_uq_result.unique_clusters} interpretasi berbeda; "
+                        f"H_norm={schema_uq_result.h_norm:.3f})"
+                    )
+                elif lexicon_clar is not None:
+                    _stage.set_summary(
+                        f"UQ tidak memicu, tetapi safeguard istilah-ambigu "
+                        f"deterministik cocok ('{lexicon_term}') → minta "
+                        f"klarifikasi (BUKAN dari UQ; rule-based)"
+                    )
+                elif not schema_uq_result.enabled:
+                    _stage.set_summary("Dilewati: Stage 2 UQ skema dimatikan")
+                elif schema_uq_result.degraded:
+                    _stage.set_summary(
+                        f"Tidak terukur — {schema_uq_result.degraded_reason} "
+                        f"(fail-open, tanpa klarifikasi)"
+                    )
+                else:
+                    _stage.set_summary(
+                        f"Interpretasi skema konvergen "
+                        f"({schema_uq_result.unique_clusters} interpretasi; "
+                        f"H_norm={schema_uq_result.h_norm:.3f})"
+                    )
+
+            if schema_uq_result.is_uncertain:
+                schema_clarification = (
+                    await self._semantic_pipeline.generate_schema_clarification(
+                        standalone_query,
+                        schema_uq_result,
+                        schema_context=prepared.context,
+                    )
+                )
+                schema_clarification_source = "uq"
+            elif lexicon_clar is not None:
+                schema_clarification = lexicon_clar
+                schema_clarification_source = "lexicon"
+
         if ablate_ambiguity:
             recorder.skip(
                 "ambiguity_detection",
                 "Dilewati: Stage 3 dimatikan via ablate_stages (eval).",
             )
             detection = AmbiguityDetectionResult(is_ambiguous=False)
+        elif schema_clarification is not None:
+            _skip_reason = (
+                "Dilewati: safeguard istilah-ambigu deterministik (rule-based, "
+                "BUKAN UQ) sudah memicu klarifikasi sebelum Stage 3."
+                if schema_clarification_source == "lexicon"
+                else "Dilewati: Stage 2 UQ skema sudah memicu klarifikasi "
+                "sebelum Stage 3."
+            )
+            recorder.skip("ambiguity_detection", _skip_reason)
+            detection = schema_clarification
         else:
             with recorder.stage("ambiguity_detection") as _stage:
                 _stage.set_input(
@@ -1467,12 +1764,21 @@ class ChatbotService:
             # mirror persis kalibrasi Stage 1.
 
         if detection.is_ambiguous:
-            auto_response = await self._try_auto_resolve(
-                user_id=normalized_user_id,
-                detection_ambiguity_type=detection.ambiguity_type,
-                options=detection.interpretation_options,
-                conversation_history=conversation_history,
-            )
+            if schema_clarification is not None:
+                # Stage 2 schema-UQ uncertainty: retrieval skema bercabang ke
+                # >1 interpretasi. WAJIB minta klarifikasi eksplisit ke user
+                # SEBELUM generate SQL — jangan auto-resolve dari memori
+                # episodik (percabangan interpretasi-skema harus dikonfirmasi).
+                # Memaksa auto_response=None membuat alur jatuh ke jalur
+                # pending-clarification (ASK) di bawah.
+                auto_response = None
+            else:
+                auto_response = await self._try_auto_resolve(
+                    user_id=normalized_user_id,
+                    detection_ambiguity_type=detection.ambiguity_type,
+                    options=detection.interpretation_options,
+                    conversation_history=conversation_history,
+                )
 
             if auto_response:
                 refine_result = await self._ambiguity_service.refine(
@@ -1593,6 +1899,12 @@ class ChatbotService:
             pending_expires_at = datetime.now(timezone.utc) + timedelta(
                 seconds=self._ambiguity_config.session_ttl_seconds
             )
+            # Snapshot trace turn ASK: Stage 1+2+3 sudah executed di atas
+            # (Stage 3 = ambiguity detection yang men-detect ambigu). Stage 4+5
+            # baru di-skip di bawah create_pending — tidak ikut snapshot karena
+            # tidak informatif. Saat resume, Stage 3 di-replace dengan refine
+            # (turn ini) dan Stage 4+5 dieksekusi nyata.
+            _ask_trace_snapshot = recorder.to_payload()
             pending_id_created = await self._repository.create_pending_clarification(
                 user_id=normalized_user_id,
                 session_id=resolved_session_id,
@@ -1619,6 +1931,7 @@ class ChatbotService:
                 ],
                 ambiguity_type=detection.ambiguity_type or "scope",
                 expires_at=pending_expires_at,
+                pipeline_trace_snapshot=_ask_trace_snapshot,
             )
 
             ambiguity_metadata = {
@@ -1863,7 +2176,7 @@ class ChatbotService:
 
     async def import_base_knowledge_csv(
         self,
-        csv_path: str = "data/base_knowledge.csv",
+        csv_path: str = "data/base_knowledge_rasl.csv",
         table_name: str | None = None,
         batch_size: int = 50,
         truncate_before_insert: bool = True,
@@ -1915,7 +2228,11 @@ class ChatbotService:
 
         for row in csv_rows[:targeted_rows]:
             processed_rows += 1
-            content = str(row.get("content") or "").strip()
+            # Prefer kolom `entity_text` (skema RASL baru), fallback ke `content`
+            # untuk backward compat dengan CSV base_knowledge lama.
+            content = str(
+                row.get("entity_text") or row.get("content") or ""
+            ).strip()
 
             if not content:
                 failed_rows += 1
@@ -1925,20 +2242,48 @@ class ChatbotService:
                     )
                 continue
 
+            column_name_raw = str(row.get("column_name") or "").strip()
+
+            # Derive schema_name + table_name dari kolom `table_name` raw.
+            # Skema RASL baru menyimpan ini sebagai "public.propinsi_tm".
+            # Jika sudah ada kolom `schema_name` eksplisit (CSV lama),
+            # gunakan apa adanya tanpa split.
+            raw_table_ref = str(row.get("table_name") or "").strip()
+            explicit_schema = str(row.get("schema_name") or "").strip()
+            if explicit_schema:
+                derived_schema = explicit_schema or None
+                derived_table = raw_table_ref or None
+            elif "." in raw_table_ref:
+                schema_part, _, table_part = raw_table_ref.partition(".")
+                derived_schema = schema_part.strip() or None
+                derived_table = table_part.strip() or None
+            else:
+                derived_schema = None
+                derived_table = raw_table_ref or None
+
+            # Derive entity_type: "table" untuk baris ringkasan tabel
+            # (column_name kosong), "column" untuk baris kolom. Override
+            # bila CSV menyimpan entity_type eksplisit (mis. value entity).
+            explicit_entity_type = str(row.get("entity_type") or "").strip()
+            if explicit_entity_type:
+                derived_entity_type = explicit_entity_type
+            else:
+                derived_entity_type = "table" if not column_name_raw else "column"
+
             try:
                 embedding = self._llm_adapter.embeddings.embed_query(content)
                 if not embedding:
                     raise ValueError("empty embedding returned")
                 pending_rows.append(
                     {
-                        "entity_type": str(row.get("entity_type") or "").strip() or None,
-                        "schema_name": str(row.get("schema_name") or "").strip() or None,
-                        "table_name": str(row.get("table_name") or "").strip() or None,
+                        "entity_type": derived_entity_type,
+                        "schema_name": derived_schema,
+                        "table_name": derived_table,
                         "table_description": str(
                             row.get("table_description") or ""
                         ).strip()
                         or None,
-                        "column_name": str(row.get("column_name") or "").strip() or None,
+                        "column_name": column_name_raw or None,
                         "column_alias": str(row.get("column_alias") or "").strip() or None,
                         "column_description": str(
                             row.get("column_description") or ""
