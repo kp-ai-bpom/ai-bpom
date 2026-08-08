@@ -1740,34 +1740,46 @@ def page_settings():
             st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
 
         st.divider()
-        with st.expander("📂 Ingestion dari Folder (path di server)"):
-            folder_path = st.text_input("Path folder", placeholder="/path/to/documents")
-            if st.button("Ingest Folder", disabled=not folder_path):
-                if not os.path.exists(folder_path):
-                    st.error(f"Folder tidak ditemukan: `{folder_path}`")
-                else:
-                    docs = []
-                    for path in Path(folder_path).rglob("*"):
-                        suffix = path.suffix.lower()
-                        if suffix == ".docx":
-                            txt = _read_docx(str(path))
-                        elif suffix == ".pdf":
-                            txt = _read_pdf(str(path))
-                        elif suffix == ".txt":
-                            txt = open(str(path), "r", encoding="utf-8").read()
-                        else:
-                            continue
-                        if txt.strip():
-                            docs.append({"filename": path.name, "text": txt})
-                    if not docs:
-                        st.warning("Tidak ada file valid di folder tersebut.")
+        with st.expander("📂 Ingestion dari Folder (subfolder WORKING_DIR)"):
+            base_dir = Path(WORKING_DIR).resolve()
+            folder_options = sorted(
+                str(path.relative_to(base_dir))
+                for path in base_dir.glob("*")
+                if path.is_dir()
+            )
+            if not folder_options:
+                st.info("Tidak ada subfolder yang tersedia di WORKING_DIR.")
+                return
+
+            selected_folder = st.selectbox(
+                "Pilih folder",
+                options=folder_options,
+            )
+
+            if st.button("Ingest Folder"):
+                target_folder = (base_dir / selected_folder).resolve()
+                docs = []
+                for path in target_folder.rglob("*"):
+                    suffix = path.suffix.lower()
+                    if suffix == ".docx":
+                        txt = _read_docx(str(path))
+                    elif suffix == ".pdf":
+                        txt = _read_pdf(str(path))
+                    elif suffix == ".txt":
+                        txt = open(str(path), "r", encoding="utf-8").read()
                     else:
-                        with st.spinner(f"Mengingest {len(docs)} dokumen..."):
-                            run_async(rag_instance.ainsert(
-                                [d["text"] for d in docs],
-                                file_paths=[d["filename"] for d in docs],
-                            ))
-                        st.success(f"✅ {len(docs)} dokumen berhasil diingest dari `{folder_path}`")
+                        continue
+                    if txt.strip():
+                        docs.append({"filename": path.name, "text": txt})
+                if not docs:
+                    st.warning("Tidak ada file valid di folder tersebut.")
+                else:
+                    with st.spinner(f"Mengingest {len(docs)} dokumen..."):
+                        run_async(rag_instance.ainsert(
+                            [d["text"] for d in docs],
+                            file_paths=[d["filename"] for d in docs],
+                        ))
+                    st.success(f"✅ {len(docs)} dokumen berhasil diingest dari `{target_folder}`")
 
     # Tab Settings
     with dtab2:
