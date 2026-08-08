@@ -1,6 +1,8 @@
+import json
 import re
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +15,8 @@ _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _QUESTION_REWRITING_TABLE = "question_rewriting_episodes"
 _CHAT_SESSIONS_TABLE = "chat_sessions"
 _CHAT_MESSAGES_TABLE = "chat_messages"
+_PENDING_CLARIFICATIONS_TABLE = "chat_pending_clarifications"
+_PROCEDURAL_RULES_TABLE = "chat_user_procedural_rules"
 
 
 def _quote_identifier(name: str) -> str:
@@ -183,6 +187,14 @@ class ChatbotRepository:
             """,
             f"""
             ALTER TABLE {_CHAT_MESSAGES_TABLE}
+            ADD COLUMN IF NOT EXISTS pipeline_trace JSONB
+            """,
+            f"""
+            ALTER TABLE {_CHAT_MESSAGES_TABLE}
+            ADD COLUMN IF NOT EXISTS ambiguity_metadata JSONB
+            """,
+            f"""
+            ALTER TABLE {_CHAT_MESSAGES_TABLE}
             ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             """,
             f"""
@@ -199,6 +211,33 @@ class ChatbotRepository:
             f"""
             CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
             ON {_CHAT_MESSAGES_TABLE} (session_id, created_at, id)
+            """,
+            f"""
+            CREATE TABLE IF NOT EXISTS {_PENDING_CLARIFICATIONS_TABLE} (
+                pending_id VARCHAR(255) PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                session_id VARCHAR(255) NOT NULL,
+                standalone_question TEXT NOT NULL,
+                schema_context TEXT NOT NULL,
+                relevant_schema JSONB NOT NULL,
+                clarification_question TEXT NOT NULL,
+                options JSONB NOT NULL,
+                ambiguity_type VARCHAR(64) NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+            )
+            """,
+            f"""
+            ALTER TABLE {_PENDING_CLARIFICATIONS_TABLE}
+            ADD COLUMN IF NOT EXISTS pipeline_trace_snapshot JSONB
+            """,
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_chat_pending_user_session
+            ON {_PENDING_CLARIFICATIONS_TABLE} (user_id, session_id)
+            """,
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_chat_pending_expires
+            ON {_PENDING_CLARIFICATIONS_TABLE} (expires_at)
             """,
         ]
 
@@ -219,6 +258,7 @@ class ChatbotRepository:
         standalone_question: str,
         query: str,
         explanation: str,
+        pipeline_trace: list[dict[str, Any]] | None = None,
     ) -> None:
         session_insert = text(
             f"""
@@ -249,9 +289,11 @@ class ChatbotRepository:
         message_insert = text(
             f"""
             INSERT INTO {_CHAT_MESSAGES_TABLE}
-                (session_id, question, standalone_question, query, explanation, created_at)
+                (session_id, question, standalone_question, query, explanation,
+                 pipeline_trace, created_at)
             VALUES
-                (:session_id, :question, :standalone_question, :query, :explanation, NOW())
+                (:session_id, :question, :standalone_question, :query, :explanation,
+                 CAST(:pipeline_trace AS JSONB), NOW())
             """
         )
         session_touch = text(
@@ -271,6 +313,11 @@ class ChatbotRepository:
             "standalone_question": standalone_question,
             "query": query,
             "explanation": explanation,
+            "pipeline_trace": (
+                json.dumps(pipeline_trace, ensure_ascii=False, default=str)
+                if pipeline_trace
+                else None
+            ),
         }
 
         try:
@@ -294,6 +341,52 @@ class ChatbotRepository:
             await self._db.rollback()
             raise
 
+    async def update_latest_chat_message_ambiguity(
+        self,
+        session_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Set ``ambiguity_metadata`` pada row ``chat_messages`` paling baru
+        untuk session ini.
+
+        Dipanggil setelah ``persist_chat_message`` (yang menambahkan baris
+        baru) untuk meng-attach jejak resolusi ambiguitas ke turn yang baru
+        saja disimpan. Tanpa ini, history endpoint tidak punya cara
+        merekonstruksi badge "Klarifikasi: dipilih X dari [A,B,C]" setelah
+        refresh — karena ``persist_chat_message`` sendiri tidak tahu konteks
+        ambiguitas yang baru di-resolve.
+
+        Catatan: tabel sumber kebenaran untuk procedural memory adalah
+        ``question_rewriting_episodes`` (di-update terpisah). Kita tetap
+        duplicate ke ``chat_messages`` karena history endpoint hanya membaca
+        dari ``chat_messages`` (per turn), sedangkan episode dapat
+        non-1:1 dengan turn (skip/rewrite events).
+        """
+        update_stmt = text(
+            f"""
+            UPDATE {_CHAT_MESSAGES_TABLE}
+            SET ambiguity_metadata = CAST(:ambiguity_metadata AS JSONB)
+            WHERE id = (
+                SELECT id FROM {_CHAT_MESSAGES_TABLE}
+                WHERE session_id = :session_id
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+            )
+            """
+        )
+        try:
+            await self._db.execute(
+                update_stmt,
+                {
+                    "session_id": session_id,
+                    "ambiguity_metadata": json.dumps(metadata, ensure_ascii=False),
+                },
+            )
+            await self._db.commit()
+        except SQLAlchemyError:
+            await self._db.rollback()
+            raise
+
     async def get_chat_session_messages(
         self,
         user_id: str,
@@ -310,7 +403,8 @@ class ChatbotRepository:
         )
         message_query = text(
             f"""
-            SELECT question, standalone_question, query, explanation, created_at
+            SELECT question, standalone_question, query, explanation,
+                   pipeline_trace, ambiguity_metadata, created_at
             FROM {_CHAT_MESSAGES_TABLE}
             WHERE session_id = :session_id
             ORDER BY created_at, id
@@ -334,20 +428,181 @@ class ChatbotRepository:
             await self._db.execute(message_query, {"session_id": session_id})
         ).mappings().all()
 
-        conversations = [
-            {
-                "question": str(row["question"]),
-                "standalone_question": str(
-                    row["standalone_question"] or row["question"]
+        def _decode_pipeline_trace(value: Any) -> list[dict[str, Any]] | None:
+            # Driver asyncpg umumnya mengembalikan kolom JSONB sebagai
+            # ``list``/``dict`` Python langsung. Namun beberapa konfigurasi
+            # (mis. driver lain atau migrasi data) bisa menyimpannya sebagai
+            # string JSON. Kasus dict di-bungkus menjadi single-element list
+            # agar UI tetap bisa render konsisten.
+            if value is None:
+                return None
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                return [value]
+            if isinstance(value, (bytes, bytearray)):
+                try:
+                    value = value.decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+            if isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except json.JSONDecodeError:
+                    return None
+                if isinstance(decoded, list):
+                    return decoded
+                if isinstance(decoded, dict):
+                    return [decoded]
+                return None
+            return None
+
+        def _decode_ambiguity_metadata(value: Any) -> dict[str, Any] | None:
+            """Decode kolom JSONB ``ambiguity_metadata``.
+
+            Sama seperti ``pipeline_trace``: asyncpg umumnya mengembalikan
+            dict langsung, tapi defensive-decode dari string/bytes.
+            """
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, (bytes, bytearray)):
+                try:
+                    value = value.decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+            if isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except json.JSONDecodeError:
+                    return None
+                if isinstance(decoded, dict):
+                    return decoded
+            return None
+
+        def _normalize_ambiguity_options(raw: Any) -> list[dict[str, str]]:
+            """Normalisasi ``options_offered`` ke ``[{id, label, description}]``.
+
+            Toleran terhadap data lama yang menyimpan ``list[str]`` tanpa
+            description/id, atau metadata baru ``list[dict]`` dengan field
+            ``label``/``description``. Bila ``id`` tidak ada di payload
+            tersimpan, di-generate synthetic ``opt_<n>`` (1-based) supaya
+            ``ClarificationOption`` schema tetap valid pada response history.
+            """
+            if not isinstance(raw, list):
+                return []
+            normalized: list[dict[str, str]] = []
+            for idx, item in enumerate(raw, start=1):
+                if isinstance(item, dict):
+                    label = str(item.get("label") or "").strip()
+                    if not label:
+                        continue
+                    opt_id = str(item.get("id") or "").strip() or f"opt_{idx}"
+                    normalized.append(
+                        {
+                            "id": opt_id,
+                            "label": label,
+                            "description": str(item.get("description") or "").strip(),
+                        }
+                    )
+                else:
+                    label = str(item or "").strip()
+                    if label:
+                        normalized.append(
+                            {"id": f"opt_{idx}", "label": label, "description": ""}
+                        )
+            return normalized
+
+        conversations = []
+        for row in message_rows:
+            ambiguity_meta = _decode_ambiguity_metadata(row.get("ambiguity_metadata"))
+            # Field clarification* dipisah dari blob mentah ``ambiguity_metadata``
+            # supaya frontend cukup baca 4 field flat tanpa perlu paham struktur
+            # internal metadata. Default ``None``/``[]`` untuk turn non-ambigu.
+            clarification_asked: str | None = None
+            interpretation_chosen: str | None = None
+            ambiguity_type: str | None = None
+            clarification_options: list[dict[str, str]] = []
+            if ambiguity_meta is not None:
+                _ca = ambiguity_meta.get("clarification_asked")
+                clarification_asked = str(_ca).strip() if _ca else None
+                _ic = ambiguity_meta.get("interpretation_chosen")
+                interpretation_chosen = str(_ic).strip() if _ic else None
+                _at = ambiguity_meta.get("ambiguity_type")
+                ambiguity_type = str(_at).strip() if _at else None
+                clarification_options = _normalize_ambiguity_options(
+                    ambiguity_meta.get("options_offered")
+                )
+            conversations.append(
+                {
+                    "question": str(row["question"]),
+                    "standalone_question": str(
+                        row["standalone_question"] or row["question"]
+                    ),
+                    "query": str(row["query"]),
+                    "explanation": (
+                        None if row["explanation"] is None else str(row["explanation"])
+                    ),
+                    "pipeline_trace": _decode_pipeline_trace(row["pipeline_trace"]),
+                    "clarification_asked": clarification_asked,
+                    "clarification_options": clarification_options,
+                    "interpretation_chosen": interpretation_chosen,
+                    "ambiguity_type": ambiguity_type,
+                    "created_at": row["created_at"],
+                }
+            )
+
+        # Sertakan pending clarification (jika ada & belum expired) supaya UI
+        # bisa re-render opsi jawaban setelah refresh. Turn clarification
+        # belum punya SQL final sehingga tidak dipersist di ``chat_messages``
+        # — tanpa field ini, opsi hilang dari riwayat.
+        pending_row = await self.load_latest_pending_clarification(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        pending_payload: dict[str, Any] | None = None
+        if pending_row is not None:
+            raw_options = pending_row.get("options")
+            if isinstance(raw_options, (bytes, bytearray)):
+                try:
+                    raw_options = raw_options.decode("utf-8")
+                except UnicodeDecodeError:
+                    raw_options = None
+            if isinstance(raw_options, str):
+                try:
+                    raw_options = json.loads(raw_options)
+                except json.JSONDecodeError:
+                    raw_options = None
+            normalized_options: list[dict[str, Any]] = []
+            for item in raw_options or []:
+                if isinstance(item, dict):
+                    normalized_options.append(
+                        {
+                            "label": str(item.get("label") or "").strip(),
+                            "description": str(item.get("description") or "").strip(),
+                        }
+                    )
+                else:
+                    label_text = str(item or "").strip()
+                    if label_text:
+                        normalized_options.append(
+                            {"label": label_text, "description": ""}
+                        )
+            pending_payload = {
+                "pending_id": str(pending_row.get("pending_id") or ""),
+                "question": str(pending_row.get("standalone_question") or ""),
+                "clarification_question": str(
+                    pending_row.get("clarification_question") or ""
                 ),
-                "query": str(row["query"]),
-                "explanation": (
-                    None if row["explanation"] is None else str(row["explanation"])
+                "options": normalized_options,
+                "ambiguity_type": (
+                    None
+                    if pending_row.get("ambiguity_type") is None
+                    else str(pending_row.get("ambiguity_type"))
                 ),
-                "created_at": row["created_at"],
+                "expires_at": pending_row.get("expires_at"),
             }
-            for row in message_rows
-        ]
 
         return {
             "user_id": str(session_row["user_id"]),
@@ -356,6 +611,7 @@ class ChatbotRepository:
             "created_at": session_row["created_at"],
             "updated_at": session_row["updated_at"],
             "conversations": conversations,
+            "pending_clarification": pending_payload,
         }
 
     async def list_chat_sessions(self, user_id: str) -> list[dict[str, Any]]:
@@ -409,6 +665,193 @@ class ChatbotRepository:
             raise
 
         return deleted.scalar_one_or_none() is not None
+
+    async def create_pending_clarification(
+        self,
+        user_id: str,
+        session_id: str,
+        standalone_question: str,
+        schema_context: str,
+        relevant_schema: dict[str, Any],
+        clarification_question: str,
+        options: list[dict[str, Any]] | list[str],
+        ambiguity_type: str,
+        expires_at: datetime,
+        pipeline_trace_snapshot: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Persist pending clarification + snapshot of stages already executed.
+
+        ``pipeline_trace_snapshot`` adalah ``recorder.to_payload()`` di akhir
+        turn ASK. Saat resume, snapshot ini di-merge dengan trace turn resume
+        supaya UI bisa menampilkan IPO utuh 5-stage walaupun stage 1+2 (atau
+        stage 1 saja untuk dangling case) sebenarnya dijalankan di turn lain.
+        """
+        pending_id = str(uuid4())
+        query = text(
+            f"""
+            INSERT INTO {_PENDING_CLARIFICATIONS_TABLE}
+                (
+                    pending_id,
+                    user_id,
+                    session_id,
+                    standalone_question,
+                    schema_context,
+                    relevant_schema,
+                    clarification_question,
+                    options,
+                    ambiguity_type,
+                    created_at,
+                    expires_at,
+                    pipeline_trace_snapshot
+                )
+            VALUES
+                (
+                    :pending_id,
+                    :user_id,
+                    :session_id,
+                    :standalone_question,
+                    :schema_context,
+                    CAST(:relevant_schema AS JSONB),
+                    :clarification_question,
+                    CAST(:options AS JSONB),
+                    :ambiguity_type,
+                    NOW(),
+                    :expires_at,
+                    CAST(:pipeline_trace_snapshot AS JSONB)
+                )
+            """
+        )
+
+        params = {
+            "pending_id": pending_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "standalone_question": standalone_question,
+            "schema_context": schema_context,
+            "relevant_schema": json.dumps(relevant_schema, ensure_ascii=True),
+            "clarification_question": clarification_question,
+            "options": json.dumps(options, ensure_ascii=True),
+            "ambiguity_type": ambiguity_type,
+            "expires_at": expires_at,
+            "pipeline_trace_snapshot": (
+                json.dumps(pipeline_trace_snapshot, ensure_ascii=True)
+                if pipeline_trace_snapshot is not None
+                else None
+            ),
+        }
+
+        try:
+            await self._db.execute(query, params)
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
+
+        return pending_id
+
+    async def load_latest_pending_clarification(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        """Load the latest pending clarification for a session (auto-detect mode)."""
+        query = text(
+            f"""
+            SELECT
+                pending_id,
+                user_id,
+                session_id,
+                standalone_question,
+                schema_context,
+                relevant_schema,
+                clarification_question,
+                options,
+                ambiguity_type,
+                created_at,
+                expires_at,
+                pipeline_trace_snapshot
+            FROM {_PENDING_CLARIFICATIONS_TABLE}
+            WHERE user_id = :user_id
+              AND session_id = :session_id
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+
+        row = (
+            await self._db.execute(
+                query,
+                {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                },
+            )
+        ).mappings().first()
+
+        if row is None:
+            return None
+        return dict(row)
+
+    async def load_pending_clarification(
+        self,
+        user_id: str,
+        session_id: str,
+        pending_id: str,
+    ) -> dict[str, Any] | None:
+        """Load a specific pending clarification by ID."""
+        query = text(
+            f"""
+            SELECT
+                pending_id,
+                user_id,
+                session_id,
+                standalone_question,
+                schema_context,
+                relevant_schema,
+                clarification_question,
+                options,
+                ambiguity_type,
+                created_at,
+                expires_at,
+                pipeline_trace_snapshot
+            FROM {_PENDING_CLARIFICATIONS_TABLE}
+            WHERE pending_id = :pending_id
+              AND user_id = :user_id
+              AND session_id = :session_id
+            LIMIT 1
+            """
+        )
+
+        row = (
+            await self._db.execute(
+                query,
+                {
+                    "pending_id": pending_id,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                },
+            )
+        ).mappings().first()
+
+        if row is None:
+            return None
+        return dict(row)
+
+    async def delete_pending_clarification(self, pending_id: str) -> None:
+        query = text(
+            f"""
+            DELETE FROM {_PENDING_CLARIFICATIONS_TABLE}
+            WHERE pending_id = :pending_id
+            """
+        )
+
+        try:
+            await self._db.execute(query, {"pending_id": pending_id})
+            await self._db.commit()
+        except Exception:
+            await self._db.rollback()
+            raise
 
     async def _get_embedding_dimensions(self, table_name: str) -> int | None:
         query = text(
@@ -476,7 +919,8 @@ class ChatbotRepository:
                 what_worked TEXT,
                 what_to_avoid TEXT,
                 source VARCHAR(100) DEFAULT 'chatbot_api',
-                embedding VECTOR
+                embedding VECTOR,
+                ambiguity_metadata JSONB
             )
             """,
             f"""
@@ -530,6 +974,10 @@ class ChatbotRepository:
             f"""
             ALTER TABLE {_QUESTION_REWRITING_TABLE}
             ADD COLUMN IF NOT EXISTS embedding VECTOR
+            """,
+            f"""
+            ALTER TABLE {_QUESTION_REWRITING_TABLE}
+            ADD COLUMN IF NOT EXISTS ambiguity_metadata JSONB
             """,
             f"""
             ALTER TABLE {_QUESTION_REWRITING_TABLE}
@@ -615,6 +1063,7 @@ class ChatbotRepository:
         what_to_avoid: str,
         source: str,
         embedding: list[float],
+        ambiguity_metadata: dict[str, Any] | None = None,
     ) -> int:
         normalized_embedding = [float(value) for value in embedding] if embedding else []
         expected_dimensions = await self._get_question_rewriting_embedding_dimensions()
@@ -643,7 +1092,8 @@ class ChatbotRepository:
                 what_worked = :what_worked,
                 what_to_avoid = :what_to_avoid,
                 source = :source,
-                embedding = CAST(:embedding AS vector)
+                embedding = CAST(:embedding AS vector),
+                ambiguity_metadata = COALESCE(CAST(:ambiguity_metadata AS JSONB), ambiguity_metadata)
             WHERE id = (
                 SELECT id
                 FROM {_QUESTION_REWRITING_TABLE}
@@ -670,7 +1120,8 @@ class ChatbotRepository:
                     what_worked,
                     what_to_avoid,
                     source,
-                    embedding
+                    embedding,
+                    ambiguity_metadata
                 )
             VALUES
                 (
@@ -684,7 +1135,8 @@ class ChatbotRepository:
                     :what_worked,
                     :what_to_avoid,
                     :source,
-                    CAST(:embedding AS vector)
+                    CAST(:embedding AS vector),
+                    CAST(:ambiguity_metadata AS JSONB)
                 )
             RETURNING id
             """
@@ -702,6 +1154,11 @@ class ChatbotRepository:
             "what_to_avoid": what_to_avoid,
             "source": source or "chatbot_api",
             "embedding": vector_literal,
+            "ambiguity_metadata": (
+                json.dumps(ambiguity_metadata, ensure_ascii=True)
+                if ambiguity_metadata is not None
+                else None
+            ),
         }
 
         try:
@@ -789,6 +1246,437 @@ class ChatbotRepository:
             return []
 
         return [dict(row) for row in rows]
+
+    async def update_latest_episode_ambiguity(
+        self,
+        user_id: str,
+        session_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        query = text(
+            f"""
+            UPDATE {_QUESTION_REWRITING_TABLE}
+            SET
+                updated_at = NOW(),
+                ambiguity_metadata = CAST(:ambiguity_metadata AS JSONB)
+            WHERE id = (
+                SELECT id
+                FROM {_QUESTION_REWRITING_TABLE}
+                WHERE user_id = :user_id
+                  AND session_id = :session_id
+                ORDER BY id DESC
+                LIMIT 1
+            )
+            """
+        )
+
+        try:
+            await self._db.execute(
+                query,
+                {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "ambiguity_metadata": json.dumps(metadata, ensure_ascii=True),
+                },
+            )
+            await self._db.commit()
+        except SQLAlchemyError:
+            await self._db.rollback()
+            raise
+
+    async def get_recent_ambiguity_resolutions(
+        self,
+        user_id: str,
+        ambiguity_type: str,
+        limit: int,
+    ) -> list[str]:
+        query = text(
+            f"""
+            SELECT
+                ambiguity_metadata ->> 'interpretation_chosen' AS interpretation_chosen
+            FROM {_QUESTION_REWRITING_TABLE}
+            WHERE user_id = :user_id
+              AND ambiguity_metadata IS NOT NULL
+              AND ambiguity_metadata ->> 'ambiguity_type' = :ambiguity_type
+              AND ambiguity_metadata ->> 'interpretation_chosen' IS NOT NULL
+              AND btrim(ambiguity_metadata ->> 'interpretation_chosen') <> ''
+            ORDER BY updated_at DESC, id DESC
+            LIMIT :k
+            """
+        )
+
+        try:
+            rows = (
+                await self._db.execute(
+                    query,
+                    {
+                        "user_id": user_id,
+                        "ambiguity_type": ambiguity_type,
+                        "k": max(1, int(limit)),
+                    },
+                )
+            ).mappings().all()
+        except SQLAlchemyError:
+            await self._db.rollback()
+            return []
+
+        candidates: list[str] = []
+        for row in rows:
+            value = str(row.get("interpretation_chosen") or "").strip()
+            if value and value not in candidates:
+                candidates.append(value)
+        return candidates
+
+    # ------------------------------------------------------------------
+    # Procedural memory (per user_id) — learned rules to bypass repeated
+    # clarification cycles for semantically-equivalent vague questions.
+    # ------------------------------------------------------------------
+
+    async def _get_procedural_embedding_dimensions(self) -> int | None:
+        return await self._get_embedding_dimensions(_PROCEDURAL_RULES_TABLE)
+
+    async def ensure_procedural_rules_table(self) -> None:
+        ddl_statements = [
+            "CREATE EXTENSION IF NOT EXISTS vector",
+            f"""
+            CREATE TABLE IF NOT EXISTS {_PROCEDURAL_RULES_TABLE} (
+                rule_id VARCHAR(64) PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                question_pattern TEXT NOT NULL,
+                question_pattern_embedding VECTOR,
+                canonical_resolution TEXT NOT NULL,
+                ambiguity_type VARCHAR(64),
+                source_clarification_question TEXT,
+                source_options JSONB,
+                confidence_score REAL DEFAULT 1.0,
+                hit_count INTEGER DEFAULT 0,
+                version INTEGER DEFAULT 1,
+                superseded_by VARCHAR(64),
+                status VARCHAR(20) DEFAULT 'active',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                archived_at TIMESTAMP WITH TIME ZONE
+            )
+            """,
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_procedural_user_status
+            ON {_PROCEDURAL_RULES_TABLE} (user_id, status)
+            """,
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_procedural_last_used
+            ON {_PROCEDURAL_RULES_TABLE} (last_used_at)
+            """,
+        ]
+        embedding_index_statement = f"""
+            CREATE INDEX IF NOT EXISTS idx_procedural_embedding_hnsw
+            ON {_PROCEDURAL_RULES_TABLE}
+            USING hnsw (question_pattern_embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+            """
+        try:
+            for statement in ddl_statements:
+                await self._db.execute(text(statement))
+
+            # HNSW index requires fixed-dimension vector(n). Skip on plain vector columns.
+            embedding_dimensions = await self._get_procedural_embedding_dimensions()
+            if embedding_dimensions and embedding_dimensions > 0:
+                await self._db.execute(text(embedding_index_statement))
+
+            await self._db.commit()
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to ensure procedural rules table: %s", exc)
+
+    async def find_matching_procedural_rule(
+        self,
+        user_id: str,
+        embedding: list[float],
+        similarity_threshold: float,
+        ttl_days: int,
+    ) -> dict[str, Any] | None:
+        """Find best active procedural rule for user_id whose pattern embedding
+        is within the cosine similarity threshold and not stale (last_used_at
+        within ttl_days). Returns None when nothing qualifies.
+        """
+        if not embedding or not user_id:
+            return None
+
+        expected_dimensions = await self._get_procedural_embedding_dimensions()
+        aligned = _align_embedding_dimensions(
+            [float(v) for v in embedding], expected_dimensions
+        )
+        if not aligned:
+            return None
+
+        vector_literal = _embedding_to_pgvector_literal(aligned)
+        max_distance = max(0.0, 1.0 - float(similarity_threshold))
+
+        query = text(
+            f"""
+            SELECT
+                rule_id,
+                question_pattern,
+                canonical_resolution,
+                ambiguity_type,
+                hit_count,
+                version,
+                confidence_score,
+                last_used_at,
+                1 - (question_pattern_embedding <=> CAST(:embedding AS vector))
+                    AS similarity
+            FROM {_PROCEDURAL_RULES_TABLE}
+            WHERE user_id = :user_id
+              AND status = 'active'
+              AND question_pattern_embedding IS NOT NULL
+              AND last_used_at >= NOW() - make_interval(days => :ttl_days)
+              AND (question_pattern_embedding <=> CAST(:embedding AS vector))
+                  <= :max_distance
+            ORDER BY question_pattern_embedding <=> CAST(:embedding AS vector) ASC
+            LIMIT 1
+            """
+        )
+        try:
+            row = (
+                await self._db.execute(
+                    query,
+                    {
+                        "user_id": user_id,
+                        "embedding": vector_literal,
+                        "max_distance": max_distance,
+                        "ttl_days": int(max(1, ttl_days)),
+                    },
+                )
+            ).mappings().first()
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.exception("Failed to query procedural rule: %s", exc)
+            return None
+        log.info(
+            "procedural_match: user_id=%s threshold=%s max_distance=%s -> %s",
+            user_id,
+            similarity_threshold,
+            max_distance,
+            (
+                f"hit rule_id={row.get('rule_id')} similarity={row.get('similarity'):.4f}"
+                if row is not None
+                else "miss"
+            ),
+        )
+
+        if row is None:
+            return None
+        return dict(row)
+
+    async def record_procedural_rule_hit(self, rule_id: str) -> None:
+        if not rule_id:
+            return
+        query = text(
+            f"""
+            UPDATE {_PROCEDURAL_RULES_TABLE}
+            SET hit_count = COALESCE(hit_count, 0) + 1,
+                last_used_at = NOW(),
+                confidence_score = LEAST(1.0, COALESCE(confidence_score, 1.0) + 0.01)
+            WHERE rule_id = :rule_id
+            """
+        )
+        try:
+            await self._db.execute(query, {"rule_id": rule_id})
+            await self._db.commit()
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to record procedural rule hit: %s", exc)
+
+    async def find_existing_rule_for_pattern(
+        self,
+        user_id: str,
+        embedding: list[float],
+        similarity_threshold: float,
+    ) -> dict[str, Any] | None:
+        """Same as find_matching but scoped only to active rules and ignores
+        TTL — used when deciding to supersede vs. insert a fresh rule.
+        """
+        if not embedding or not user_id:
+            return None
+        expected_dimensions = await self._get_procedural_embedding_dimensions()
+        aligned = _align_embedding_dimensions(
+            [float(v) for v in embedding], expected_dimensions
+        )
+        if not aligned:
+            return None
+
+        vector_literal = _embedding_to_pgvector_literal(aligned)
+        max_distance = max(0.0, 1.0 - float(similarity_threshold))
+
+        query = text(
+            f"""
+            SELECT rule_id, version, canonical_resolution
+            FROM {_PROCEDURAL_RULES_TABLE}
+            WHERE user_id = :user_id
+              AND status = 'active'
+              AND question_pattern_embedding IS NOT NULL
+              AND (question_pattern_embedding <=> CAST(:embedding AS vector))
+                  <= :max_distance
+            ORDER BY question_pattern_embedding <=> CAST(:embedding AS vector) ASC
+            LIMIT 1
+            """
+        )
+        try:
+            row = (
+                await self._db.execute(
+                    query,
+                    {
+                        "user_id": user_id,
+                        "embedding": vector_literal,
+                        "max_distance": max_distance,
+                    },
+                )
+            ).mappings().first()
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to query existing rule: %s", exc)
+            return None
+        return dict(row) if row else None
+
+    async def insert_procedural_rule(
+        self,
+        user_id: str,
+        question_pattern: str,
+        embedding: list[float],
+        canonical_resolution: str,
+        ambiguity_type: str | None,
+        source_clarification_question: str | None,
+        source_options: list[str] | None,
+        version: int = 1,
+    ) -> str | None:
+        """Insert a new procedural rule. Returns rule_id, or None on failure."""
+        if not user_id or not question_pattern.strip() or not canonical_resolution.strip():
+            return None
+        if not embedding:
+            return None
+
+        expected_dimensions = await self._get_procedural_embedding_dimensions()
+        aligned = _align_embedding_dimensions(
+            [float(v) for v in embedding], expected_dimensions
+        )
+        if not aligned:
+            return None
+
+        rule_id = str(uuid4())
+        vector_literal = _embedding_to_pgvector_literal(aligned)
+        options_payload = json.dumps(
+            [str(opt) for opt in (source_options or [])], ensure_ascii=True
+        )
+
+        query = text(
+            f"""
+            INSERT INTO {_PROCEDURAL_RULES_TABLE} (
+                rule_id, user_id, question_pattern, question_pattern_embedding,
+                canonical_resolution, ambiguity_type,
+                source_clarification_question, source_options,
+                confidence_score, hit_count, version, status,
+                created_at, last_used_at
+            ) VALUES (
+                :rule_id, :user_id, :question_pattern, CAST(:embedding AS vector),
+                :canonical_resolution, :ambiguity_type,
+                :source_clarification_question, CAST(:source_options AS JSONB),
+                1.0, 0, :version, 'active',
+                NOW(), NOW()
+            )
+            """
+        )
+        try:
+            await self._db.execute(
+                query,
+                {
+                    "rule_id": rule_id,
+                    "user_id": user_id,
+                    "question_pattern": question_pattern.strip(),
+                    "embedding": vector_literal,
+                    "canonical_resolution": canonical_resolution.strip(),
+                    "ambiguity_type": ambiguity_type,
+                    "source_clarification_question": source_clarification_question,
+                    "source_options": options_payload,
+                    "version": int(max(1, version)),
+                },
+            )
+            await self._db.commit()
+            return rule_id
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to insert procedural rule: %s", exc)
+            return None
+
+    async def supersede_procedural_rule(
+        self, old_rule_id: str, new_rule_id: str
+    ) -> None:
+        if not old_rule_id or not new_rule_id:
+            return
+        query = text(
+            f"""
+            UPDATE {_PROCEDURAL_RULES_TABLE}
+            SET status = 'superseded',
+                superseded_by = :new_rule_id,
+                archived_at = NOW()
+            WHERE rule_id = :old_rule_id
+            """
+        )
+        try:
+            await self._db.execute(
+                query, {"old_rule_id": old_rule_id, "new_rule_id": new_rule_id}
+            )
+            await self._db.commit()
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to supersede procedural rule: %s", exc)
+
+    async def archive_procedural_rules_by_pattern(
+        self,
+        user_id: str,
+        embedding: list[float],
+        similarity_threshold: float,
+    ) -> int:
+        """Archive all active rules for user_id whose pattern is similar to
+        the supplied embedding. Used by reset-preference command.
+        Returns count archived.
+        """
+        if not embedding or not user_id:
+            return 0
+        expected_dimensions = await self._get_procedural_embedding_dimensions()
+        aligned = _align_embedding_dimensions(
+            [float(v) for v in embedding], expected_dimensions
+        )
+        if not aligned:
+            return 0
+
+        vector_literal = _embedding_to_pgvector_literal(aligned)
+        max_distance = max(0.0, 1.0 - float(similarity_threshold))
+
+        query = text(
+            f"""
+            UPDATE {_PROCEDURAL_RULES_TABLE}
+            SET status = 'archived', archived_at = NOW()
+            WHERE user_id = :user_id
+              AND status = 'active'
+              AND question_pattern_embedding IS NOT NULL
+              AND (question_pattern_embedding <=> CAST(:embedding AS vector))
+                  <= :max_distance
+            """
+        )
+        try:
+            result = await self._db.execute(
+                query,
+                {
+                    "user_id": user_id,
+                    "embedding": vector_literal,
+                    "max_distance": max_distance,
+                },
+            )
+            await self._db.commit()
+            return int(result.rowcount or 0)
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            log.warning("Failed to archive procedural rules: %s", exc)
+            return 0
 
     async def is_vector_table_available(self, vector_table: str) -> bool:
         query = text("SELECT to_regclass(:table_name)")
@@ -898,6 +1786,165 @@ class ChatbotRepository:
             await self._db.execute(query, {"vec": vector_literal, "k": int(top_k)})
         ).mappings().all()
         return [dict(row) for row in rows]
+
+    async def get_table_key_columns(
+        self,
+        allowed_tables: dict[str, list[str]],
+    ) -> dict[str, set[str]]:
+        """Return mapping ``schema.table -> {column_names}`` for PRIMARY KEY
+        and FOREIGN KEY columns of the given allowed tables.
+
+        Used by ``TableRetriever`` when ``auto_include_keys=True`` to inject
+        join/identity keys into retrieved column sets so downstream Stage 4
+        (SQL generation) never misses a JOIN/PK reference even when the
+        vector search did not surface it.
+        """
+        if not allowed_tables:
+            return {}
+
+        schema_names = [s for s in allowed_tables if s]
+        if not schema_names:
+            return {}
+
+        placeholders = ", ".join(f":s{i}" for i in range(len(schema_names)))
+        params: dict[str, Any] = {f"s{i}": name for i, name in enumerate(schema_names)}
+
+        query = text(
+            f"""
+            SELECT
+                tc.table_schema,
+                tc.table_name,
+                kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            WHERE tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
+              AND tc.table_schema IN ({placeholders})
+            """
+        )
+
+        rows = (await self._db.execute(query, params)).mappings().all()
+
+        result: dict[str, set[str]] = {}
+        for row in rows:
+            schema_name = str(row["table_schema"])
+            table_name = str(row["table_name"])
+            if table_name not in allowed_tables.get(schema_name, []):
+                continue
+            key = f"{schema_name}.{table_name}"
+            result.setdefault(key, set()).add(str(row["column_name"]))
+
+        # Augment dengan override dari config (Task #58). Penting untuk
+        # tabel tanpa PRIMARY KEY constraint formal (mis. SIAP_SATKER_TOP
+        # yang di-import dari dump tanpa deklarasi PK). Override TIDAK
+        # menggantikan hasil information_schema — hanya menambah, sehingga
+        # tabel ber-constraint normal tetap utuh.
+        try:
+            from app.domains.chatbot.database_schema_filtering.config import (
+                get_semantic_memory_config,
+            )
+
+            override = get_semantic_memory_config().key_cols_override or {}
+        except Exception:  # pragma: no cover - config harus selalu loadable
+            override = {}
+
+        applied = 0
+        for table_key, cols in override.items():
+            if "." not in table_key:
+                continue
+            schema_name, table_name = table_key.split(".", 1)
+            if table_name not in allowed_tables.get(schema_name, []):
+                continue
+            bucket = result.setdefault(table_key, set())
+            before = len(bucket)
+            for col in cols:
+                bucket.add(col)
+            if len(bucket) > before:
+                applied += 1
+
+        if applied:
+            log.info(
+                "[get_table_key_columns] applied %d override entries", applied
+            )
+
+        return result
+
+    async def get_foreign_key_edges(
+        self,
+        allowed_tables: dict[str, list[str]],
+    ) -> list[dict[str, str]]:
+        """Return the structural FK edges declared in ``information_schema``.
+
+        Each edge is a dict ``{from_table, from_column, to_table, to_column}``
+        where ``*_table`` is ``schema.table`` and ``*_column`` is the bare
+        column name. Only edges where BOTH endpoints fall within
+        ``allowed_tables`` are returned — Stage 2 has no business surfacing
+        joins to tables the retriever can never see.
+
+        Used by the Stage 2 trace builder to merge with the documented FK
+        edges parsed from ``base_knowledge_rasl.csv`` (see ``fk_graph.py``).
+        """
+        if not allowed_tables:
+            return []
+
+        schema_names = [s for s in allowed_tables if s]
+        if not schema_names:
+            return []
+
+        placeholders = ", ".join(f":s{i}" for i in range(len(schema_names)))
+        params: dict[str, Any] = {f"s{i}": name for i, name in enumerate(schema_names)}
+
+        query = text(
+            f"""
+            SELECT
+                tc.table_schema AS from_schema,
+                tc.table_name   AS from_table,
+                kcu.column_name AS from_column,
+                ccu.table_schema AS to_schema,
+                ccu.table_name   AS to_table,
+                ccu.column_name  AS to_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema IN ({placeholders})
+            """
+        )
+
+        try:
+            rows = (await self._db.execute(query, params)).mappings().all()
+        except SQLAlchemyError as exc:
+            log.warning(
+                "[get_foreign_key_edges] query failed, returning empty: %s", exc
+            )
+            return []
+
+        edges: list[dict[str, str]] = []
+        for row in rows:
+            from_schema = str(row["from_schema"])
+            from_table = str(row["from_table"])
+            to_schema = str(row["to_schema"])
+            to_table = str(row["to_table"])
+            if from_table not in allowed_tables.get(from_schema, []):
+                continue
+            if to_table not in allowed_tables.get(to_schema, []):
+                continue
+            edges.append(
+                {
+                    "from_table": f"{from_schema}.{from_table}",
+                    "from_column": str(row["from_column"]),
+                    "to_table": f"{to_schema}.{to_table}",
+                    "to_column": str(row["to_column"]),
+                }
+            )
+        return edges
 
     async def get_vector_table_embedding_dimensions(self, vector_table: str) -> int | None:
         _safe_table_reference(vector_table)

@@ -17,7 +17,11 @@ def _normalize_table_name(value: str | None) -> str | None:
 
 
 class SendMessageRequest(BaseModel):
-    """Schema request untuk mengirim pesan ke chatbot."""
+    """Schema request untuk mengirim pesan ke chatbot.
+    
+    Backend auto-detects: jika session punya pending clarification,
+    treat message sebagai respon klarifikasi; jika tidak, treat sebagai pertanyaan baru.
+    """
 
     user_id: str
     message: str
@@ -59,7 +63,7 @@ class EmbeddingRequest(BaseModel):
 class ImportBaseKnowledgeCsvRequest(BaseModel):
     """Schema request untuk import + embedding base knowledge dari CSV."""
 
-    csv_path: str = "data/base_knowledge.csv"
+    csv_path: str = "data/base_knowledge_rasl.csv"
     table_name: str | None = None
     batch_size: int = Field(default=50, ge=1, le=500)
     truncate_before_insert: bool = True

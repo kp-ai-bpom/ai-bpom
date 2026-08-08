@@ -1,323 +1,432 @@
 [
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-001",
-      "nama": "Dr. Budi Santoso, M.Si., Apt.",
-      "jabatan_saat_ini": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
-      "unit_kerja": "Inspektorat Utama, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2022 - 2026",
-        "jabatan": "Kepala Bagian Tata Usaha pada Inspektorat Utama",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Berperan aktif menjadi katalisator perubahan di lingkungan inspektorat, memberikan masukan strategis secara komprehensif kepada pimpinan organisasi mengenai profil risiko saat ini, serta mengevaluasi tata kelola, manajemen risiko, dan pengendalian intern organisasi."
-      },
-      {
-        "periode": "2018 - 2022",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat I",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Mengendalikan mutu pelaksanaan audit intern, menerapkan perencanaan audit tahunan berbasis risiko yang sesuai dengan standar, serta mengembangkan dan memelihara Quality Assurance and Improvement Program (QAIP)."
-      }
+    "nip": "1",
+    "nama": "John 1",
+    "nama_lengkap": "John 1, S.Farm, Apt., M.Farm",
+    "jabatan_nama": "Analis SDM Aparatur Ahli Madya",
+    "jabatan_terakhir": "Analis SDM Aparatur Ahli Madya",
+    "foto_url": "https://siasn.pom.go.id/storage/photo?uuid=d66260ad-ae70-4557-b684-a657217e7c3e",
+    "pool": 7,
+    "pool_id": 535,
+    "fungsi_jabatan": [
+      "Analis SDM Aparatur Ahli Madya",
+      "Analis Kepegawaian Ahli Madya",
+      "Pengawas Farmasi dan Makanan Ahli Madya",
+      "Kepala Subbagian Pengelolaan Karier Jabatan Fungsional",
+      "Kepala Sub Bagian Perlengkapan"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2019, "keterangan": "Lulus dengan predikat Sangat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Berbasis Risiko", "tahun": 2020, "keterangan": "Sertifikasi kompetensi teknis audit"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2024, "keterangan": "Skor 580 (Mampu berbahasa Inggris dengan baik secara lisan maupun tulisan)"}
+    "riwayat_jabatan": [
+      "Analis SDM Aparatur Ahli Madya",
+      "Analis Kepegawaian Ahli Madya",
+      "Pengawas Farmasi dan Makanan Ahli Madya",
+      "Kepala Subbagian Pengelolaan Karier Jabatan Fungsional",
+      "Kepala Sub Bagian Perlengkapan"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
-    "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
-  },
-  {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-002",
-      "nama": "Ir. Siti Rahayu, M.Sc.",
-      "jabatan_saat_ini": "Kepala Sub Direktorat Pengawasan Distribusi pada Direktorat Pengawasan Distribusi",
-      "unit_kerja": "Direktorat Pengawasan Distribusi, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2021 - 2026",
-        "jabatan": "Kepala Sub Direktorat Pengawasan Distribusi",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Memimpin pengawasan distribusi obat dan makanan, melakukan koordinasi dengan dinas kesehatan daerah, serta memastikan kepatuhan pelaku usaha terhadap regulasi distribusi. Berperan sebagai katalisator dalam peningkatan sistem pengawasan berbasis risiko."
-      },
-      {
-        "periode": "2016 - 2021",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat II",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit kinerja dan audit kepatuhan, memelihara Quality Assurance and Improvement Program (QAIP), serta memberikan rekomendasi perbaikan tata kelola dan pengendalian intern."
-      },
-      {
-        "periode": "2012 - 2016",
-        "jabatan": "Auditor Ahli Pertama pada Inspektorat II",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit operasional dan audit khusus, menyusun laporan hasil audit, serta mendukung pengembangan program perencanaan audit berbasis risiko."
-      }
+    "riwayat_pendidikan": ["S2", "Farmasi"],
+    "nilai_potensi": 18.096,
+    "nilai_mansoskul": 83,
+    "nilai_kinerja": 3,
+    "nilai_kinerja_label": "Baik",
+    "masa_kerja": 21,
+    "masa_kerja_total_tahun": 21,
+    "diklat_pim_level": null,
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "7.64",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Dokumen layanan terkait perencanaan, pengadaan dan mutasi dilaksanakan secara akurat dan tepat waktu (sesuai SLA)",
+      "IP ASN Badan POM dimonitor dan dievaluasi secara berkala sesuai dengan ketentuan",
+      "Kemajuan Capaian Pengembangan Sistim Informasi ASN termonitor secara berkala",
+      "Layanan Kepegawaian Berbasis Digital yang diselesaikan dan diimplementasikan sesuai dengan perencanaan",
+      "Layanan Konsultasi/Pendampingan terkait perencanaan, pengadaan, mutasi dilakukan secara memuaskan",
+      "Pengembangan kompetensi yang dilakukan sesuai kebutuhan",
+      "Perencanaan penempatan ASN pada unit kerja sesuai hasil perhitungan ABK dilakukan secara akurat",
+      "Rencana Aksi RB Penataan Sistem Manajemen SDM Aspek Sistem Informasi Kepegawaian sesuai dengan Perencanaan",
+      "Integrasi data dengan BKN yang dimonitor dan dievaluasi sesuai perencanaan",
+      "Pemutakhiran data pegawai Unit Kerja yang dimonitoring dan dievaluasi secara berkala"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2020, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Profesional", "tahun": 2018, "keterangan": "Sertifikasi kompetensi audit intern"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2023, "keterangan": "Skor 560 (Mampu berbahasa Inggris dengan baik)"}
-    ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
-    "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
-  },
-  {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-003",
-      "nama": "Drs. Ahmad Fauzi, M.AP.",
-      "jabatan_saat_ini": "Kepala Seksi Perencanaan pada Biro Perencanaan",
-      "unit_kerja": "Biro Perencanaan, Sekretariat Utama, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2023 - 2026",
-        "jabatan": "Kepala Seksi Perencanaan pada Biro Perencanaan",
-        "durasi_tahun": 3,
-        "deskripsi_tugas_dan_fungsi": "Menyusun rencana strategis organisasi, mengkoordinasikan perencanaan program dan kegiatan, serta memantau pencapaian kinerja organisasi."
-      },
-      {
-        "periode": "2018 - 2023",
-        "jabatan": "Kepala Sub Bagian Program pada Biro Perencanaan",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Menyusun program kerja tahunan, mengelola data kinerja, dan mendukung evaluasi program organisasi."
-      }
-    ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2021, "keterangan": "Lulus dengan predikat Sangat Memuaskan"}
-    ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"}
-    },
     "posisi_nine_box_talenta": "Kotak 7 (Kinerja diatas ekspektasi dan potensi menengah)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-004",
-      "nama": "Dra. Dewi Lestari, M.Si.",
-      "jabatan_saat_ini": "Auditor Ahli Madya pada Inspektorat III",
-      "unit_kerja": "Inspektorat III, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2020 - 2026",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat III",
-        "durasi_tahun": 6,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit intern berbasis risiko, mengendalikan mutu pelaksanaan audit, dan menyusun rekomendasi perbaikan sistem pengendalian intern organisasi."
-      },
-      {
-        "periode": "2015 - 2020",
-        "jabatan": "Auditor Ahli Pertama pada Inspektorat III",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit kepatuhan dan audit kinerja, memelihara dokumentasi audit, serta mendukung Quality Assurance and Improvement Program (QAIP)."
-      }
+    "nip": "2",
+    "nama": "John 2",
+    "nama_lengkap": "John 2, S.Si., Apt., M.Kes",
+    "jabatan_nama": "Pengawas Farmasi dan Makanan Ahli Madya",
+    "jabatan_terakhir": "Pengawas Farmasi dan Makanan Ahli Madya",
+    "foto_url": "https://siasn.pom.go.id/storage/photo?uuid=dummy-uuid-for-john2",
+    "pool": 7,
+    "pool_id": 535,
+    "fungsi_jabatan": [
+      "Pengawas Farmasi dan Makanan Ahli Madya",
+      "Kepala Seksi Inspeksi",
+      "Kepala Subbagian Tata Usaha",
+      "Pengawas Farmasi dan Makanan Ahli Muda"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2019, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Berbasis Risiko", "tahun": 2021, "keterangan": "Sertifikasi kompetensi teknis audit"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2022, "keterangan": "Skor 520 (Cukup mampu berbahasa Inggris)"}
+    "riwayat_jabatan": [
+      "Pengawas Farmasi dan Makanan Ahli Madya",
+      "Kepala Seksi Inspeksi",
+      "Kepala Subbagian Tata Usaha",
+      "Pengawas Farmasi dan Makanan Ahli Muda",
+      "Pengawas Farmasi dan Makanan Ahli Pertama"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
+    "riwayat_pendidikan": ["S2", "Kesehatan Masyarakat"],
+    "nilai_potensi": 19.15,
+    "nilai_mansoskul": 85,
+    "nilai_kinerja": 4,
+    "nilai_kinerja_label": "Sangat Baik",
+    "masa_kerja": 18,
+    "masa_kerja_total_tahun": 18,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "5.50",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Dokumen laporan hasil inspeksi fasilitas produksi obat dan makanan diselesaikan dengan akurat dan tepat waktu",
+      "Pelaksanaan sampling dan pengujian rutin obat dan makanan di wilayah kerja berjalan sesuai dengan rencana pengawasan",
+      "Layanan konsultasi dan pendampingan sertifikasi bagi pelaku UMKM di bidang pangan olahan berjalan dengan memuaskan sesuai target waktu",
+      "Penyusunan rencana, program, dan anggaran unit kerja pengawasan di tingkat Balai disusun secara akurat",
+      "Pelaksanaan urusan ketatausahaan, kearsipan, dan kerumahtanggaan saat menjabat di bidang struktural berjalan secara efektif dan efisien",
+      "Monitoring dan evaluasi kinerja pengawasan di wilayah kerja diselesaikan secara berkala dan dilaporkan kepada pimpinan",
+      "Pelaksanaan kerja sama lintas sektor dengan instansi pemerintah daerah dalam pengawasan peredaran produk dilaksanakan dengan baik",
+      "Integrasi data hasil pengawasan ke dalam sistem pelaporan pusat (SIPT) dipastikan akurat, lengkap, dan mutakhir"
+    ],
+    "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
+  },
+  {
+    "nip": "3",
+    "nama": "Selvina Dzulhi",
+    "nama_lengkap": "Selvina Dzulhi, S.Farm, Apt., M.Farm.Klin",
+    "jabatan_nama": "Analis Kepegawaian Ahli Madya",
+    "jabatan_terakhir": "Analis Kepegawaian Ahli Madya",
+    "foto_url": "https://siasn.pom.go.id/storage/photo?uuid=selvina-photo-uuid",
+    "pool": 7,
+    "pool_id": 535,
+    "fungsi_jabatan": [
+      "Analis Kepegawaian Ahli Madya",
+      "Analis SDM Aparatur Ahli Madya",
+      "Kepala Seksi Penilaian Kinerja"
+    ],
+    "riwayat_jabatan": [
+      "Analis Kepegawaian Ahli Madya",
+      "Analis SDM Aparatur Ahli Madya",
+      "Kepala Seksi Penilaian Kinerja",
+      "Kepala Sub Bagian Remunerasi"
+    ],
+    "riwayat_pendidikan": ["S2", "Farmasi Klinik"],
+    "nilai_potensi": 17.5,
+    "nilai_mansoskul": 80,
+    "nilai_kinerja": 3,
+    "nilai_kinerja_label": "Baik",
+    "masa_kerja": 15,
+    "masa_kerja_total_tahun": 15,
+    "diklat_pim_level": "IV",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "4.20",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Layanan Kepegawaian Berbasis Digital yang diselesaikan dan diimplementasikan sesuai dengan perencanaan",
+      "Pemutakhiran data pegawai Unit Kerja yang dimonitoring dan dievaluasi secara berkala",
+      "Penyusunan rencana kebutuhan SDM sesuai perhitungan ABK dilakukan secara akurat",
+      "Rencana Aksi RB Penataan Sistem Manajemen SDM Aspek Sistem Informasi Kepegawaian sesuai dengan Perencanaan",
+      "Integrasi data dengan BKN yang dimonitor dan dievaluasi sesuai perencanaan"
+    ],
     "posisi_nine_box_talenta": "Kotak 7 (Kinerja diatas ekspektasi dan potensi menengah)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-005",
-      "nama": "Dr. Hendra Wijaya, M.Kes.",
-      "jabatan_saat_ini": "Kepala Bidang Pengawasan Produksi pada Balai Besar POM di Surabaya",
-      "unit_kerja": "Balai Besar POM Surabaya, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2022 - 2026",
-        "jabatan": "Kepala Bidang Pengawasan Produksi pada Balai Besar POM Surabaya",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Memimpin pengawasan produksi obat dan makanan di wilayah kerja, melakukan inspeksi dan pengambilan sampel, serta memberikan rekomendasi teknis terkait kepatuhan standar produksi."
-      },
-      {
-        "periode": "2017 - 2022",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat I",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit intern, mengevaluasi pengendalian intern, dan mengembangkan rencana audit berbasis risiko di lingkungan inspektorat."
-      }
+    "nip": "4",
+    "nama": "Ahmad Ridwan",
+    "nama_lengkap": "Ahmad Ridwan, S.H., M.H.",
+    "jabatan_nama": "Kepala Subbagian Tata Usaha pada Inspektorat I",
+    "jabatan_terakhir": "Kepala Subbagian Tata Usaha pada Inspektorat I",
+    "foto_url": null,
+    "pool": 8,
+    "pool_id": 536,
+    "fungsi_jabatan": [
+      "Kepala Subbagian Tata Usaha pada Inspektorat I",
+      "Auditor Ahli Madya",
+      "Kepala Seksi Pengawasan Internal"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2018, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Berbasis Risiko", "tahun": 2019, "keterangan": "Sertifikasi kompetensi teknis audit"}
+    "riwayat_jabatan": [
+      "Kepala Subbagian Tata Usaha pada Inspektorat I",
+      "Auditor Ahli Madya pada Inspektorat I",
+      "Auditor Ahli Pertama pada Inspektorat II"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian kecil unsur penilaian prestasi kerja perlu peningkatan"}
-    },
-    "posisi_nine_box_talenta": "Kotak 5 (Kinerja sesuai ekspektasi dan potensi menengah)"
-  },
-  {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-006",
-      "nama": "Ir. Ratna Sari, M.T.",
-      "jabatan_saat_ini": "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian dan Organisasi",
-      "unit_kerja": "Biro Kepegawaian dan Organisasi, Sekretariat Utama, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2024 - 2026",
-        "jabatan": "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian dan Organisasi",
-        "durasi_tahun": 2,
-        "deskripsi_tugas_dan_fungsi": "Mengelola administrasi kepegawaian, menyusun kebutuhan formasi, dan mengkoordinasikan pengembangan kompetensi pegawai."
-      },
-      {
-        "periode": "2020 - 2024",
-        "jabatan": "Kepala Seksi Pengembangan SDM",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Merancang program pengembangan sumber daya manusia, mengelola pelatihan dan sertifikasi pegawai, serta memantau implementasi manajemen talenta."
-      }
+    "riwayat_pendidikan": ["S2", "Hukum"],
+    "nilai_potensi": 20.0,
+    "nilai_mansoskul": 88,
+    "nilai_kinerja": 4,
+    "nilai_kinerja_label": "Sangat Baik",
+    "masa_kerja": 22,
+    "masa_kerja_total_tahun": 22,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "8.10",
+    "current_eselon_id": "41",
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Penyusunan rencana, program, dan anggaran Inspektorat disusun secara akurat",
+      "Pelaksanaan audit internal terhadap unit kerja diselesaikan tepat waktu",
+      "Monitoring dan evaluasi tindak lanjut hasil pengawasan terlaksana dengan baik",
+      "Pelaksanaan urusan ketatausahaan, kearsipan, dan kerumahtanggaan berjalan secara efektif",
+      "Penyusunan Laporan Akuntabilitas Kinerja Instansi Pemerintah (LAKIP) diselesaikan tepat waktu"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2022, "keterangan": "Lulus dengan predikat Sangat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Manajemen SDM", "tahun": 2023, "keterangan": "Sertifikasi profesional manajemen sumber daya manusia"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2024, "keterangan": "Skor 550 (Mampu berbahasa Inggris dengan baik)"}
-    ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
     "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-007",
-      "nama": "Drs. Bambang Setiawan, M.Si.",
-      "jabatan_saat_ini": "Kepala Bagian Pemeriksaan dan Penjaminan Mutu pada Inspektorat I",
-      "unit_kerja": "Inspektorat I, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2021 - 2026",
-        "jabatan": "Kepala Bagian Pemeriksaan dan Penjaminan Mutu pada Inspektorat I",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Memimpin pemeriksaan mutu pelaksanaan audit, menjadi katalisator perubahan dalam peningkatan kualitas audit, serta memelihara Quality Assurance and Improvement Program (QAIP). Memberikan masukan strategis kepada Inspektur I terkait manajemen risiko dan pengendalian intern."
-      },
-      {
-        "periode": "2016 - 2021",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat I",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit intern berbasis risiko, mengendalikan mutu pelaksanaan audit, mengembangkan perencanaan audit tahunan, serta memberikan rekomendasi perbaikan pengendalian intern."
-      },
-      {
-        "periode": "2011 - 2016",
-        "jabatan": "Auditor Ahli Pertama pada Inspektorat I",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit kepatuhan dan audit kinerja, mendukung pengembangan metodologi audit, serta membantu pemeliharaan Quality Assurance and Improvement Program (QAIP)."
-      }
+    "nip": "5",
+    "nama": "Dewi Kartika",
+    "nama_lengkap": "Dewi Kartika, S.E., M.M.",
+    "jabatan_nama": "Kepala Seksi Perencanaan pada Biro Perencanaan",
+    "jabatan_terakhir": "Kepala Seksi Perencanaan pada Biro Perencanaan",
+    "foto_url": null,
+    "pool": 7,
+    "pool_id": 535,
+    "fungsi_jabatan": [
+      "Kepala Seksi Perencanaan pada Biro Perencanaan",
+      "Kepala Sub Bagian Program",
+      "Analis Kebijakan Ahli Madya"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2018, "keterangan": "Lulus dengan predikat Sangat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Profesional", "tahun": 2019, "keterangan": "Sertifikasi kompetensi profesional audit intern"},
-      {"nama_sertifikasi": "Sertifikasi Manajemen Risiko", "tahun": 2020, "keterangan": "Sertifikasi kompetensi manajemen risiko"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2021, "keterangan": "Skor 575 (Mampu berbahasa Inggris dengan baik)"}
+    "riwayat_jabatan": [
+      "Kepala Seksi Perencanaan pada Biro Perencanaan",
+      "Kepala Sub Bagian Program pada Biro Perencanaan",
+      "Analis Kebijakan Ahli Madya"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Di Atas Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
+    "riwayat_pendidikan": ["S2", "Manajemen"],
+    "nilai_potensi": 16.8,
+    "nilai_mansoskul": 78,
+    "nilai_kinerja": 3,
+    "nilai_kinerja_label": "Baik",
+    "masa_kerja": 19,
+    "masa_kerja_total_tahun": 19,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "5.00",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Penyusunan rencana strategis dan rencana kerja tahunan diselesaikan tepat waktu",
+      "Perencanaan kebutuhan ASN yang disusun oleh unit kerja dievaluasi secara akurat",
+      "Rencana Aksi RB Penataan Sistem Manajemen SDM Aspek Perencanaan Kebutuhan sesuai Perencanaan",
+      "Monitoring dan evaluasi program kerja dilakukan secara berkala"
+    ],
+    "posisi_nine_box_talenta": "Kotak 7 (Kinerja diatas ekspektasi dan potensi menengah)"
+  },
+  {
+    "nip": "6",
+    "nama": "Budi Prasetyo",
+    "nama_lengkap": "Budi Prasetyo, S.T., M.T.",
+    "jabatan_nama": "Kepala Bidang Pengawasan Produksi pada Balai Besar POM Surabaya",
+    "jabatan_terakhir": "Kepala Bidang Pengawasan Produksi pada Balai Besar POM Surabaya",
+    "foto_url": null,
+    "pool": 9,
+    "pool_id": 537,
+    "fungsi_jabatan": [
+      "Kepala Bidang Pengawasan Produksi pada Balai Besar POM Surabaya",
+      "Pengawas Farmasi dan Makanan Ahli Madya"
+    ],
+    "riwayat_jabatan": [
+      "Kepala Bidang Pengawasan Produksi pada Balai Besar POM Surabaya",
+      "Pengawas Farmasi dan Makanan Ahli Madya",
+      "Pengawas Farmasi dan Makanan Ahli Muda"
+    ],
+    "riwayat_pendidikan": ["S2", "Farmasi"],
+    "nilai_potensi": 21.5,
+    "nilai_mansoskul": 90,
+    "nilai_kinerja": 4,
+    "nilai_kinerja_label": "Sangat Baik",
+    "masa_kerja": 20,
+    "masa_kerja_total_tahun": 20,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "6.50",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Dokumen laporan hasil inspeksi fasilitas produksi obat dan makanan diselesaikan dengan akurat dan tepat waktu",
+      "Pelaksanaan sampling dan pengujian rutin obat dan makanan berjalan sesuai rencana pengawasan",
+      "Evaluasi penerapan CPOB dan CPPOB dilaksanakan secara komprehensif",
+      "Bimbingan teknis dan supervisi kepada tenaga pengawas dilaksanakan secara periodik",
+      "Pengembangan kompetensi teknis bagi staf fungsional direncanakan dan dievaluasi"
+    ],
     "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-008",
-      "nama": "Dra. Nur Hidayah, M.AP.",
-      "jabatan_saat_ini": "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
-      "unit_kerja": "Biro Hukum, Sekretariat Utama, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2023 - 2026",
-        "jabatan": "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
-        "durasi_tahun": 3,
-        "deskripsi_tugas_dan_fungsi": "Menangani penyelesaian masalah hukum terkait regulasi obat dan makanan, memberikan opini hukum, serta mengkoordinasikan penyelesaian sengketa."
-      },
-      {
-        "periode": "2018 - 2023",
-        "jabatan": "Kepala Sub Bagian Peraturan pada Biro Hukum",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Menyusun rancangan peraturan, melakukan harmonisasi regulasi, dan memberikan masukan hukum terkait kebijakan pengawasan obat dan makanan."
-      }
+    "nip": "7",
+    "nama": "Ratna Sari",
+    "nama_lengkap": "Ratna Sari, S.Sos., M.Si.",
+    "jabatan_nama": "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian",
+    "jabatan_terakhir": "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian",
+    "foto_url": null,
+    "pool": 8,
+    "pool_id": 536,
+    "fungsi_jabatan": [
+      "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian",
+      "Kepala Seksi Pengembangan SDM",
+      "Analis Kepegawaian Ahli Madya"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2022, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (IELTS)", "tahun": 2023, "keterangan": "Skor 6.5 (Mampu berbahasa Inggris dengan baik)"}
+    "riwayat_jabatan": [
+      "Kepala Sub Bagian Kepegawaian pada Biro Kepegawaian",
+      "Kepala Seksi Pengembangan SDM",
+      "Analis Kepegawaian Ahli Madya",
+      "Analis Kepegawaian Ahli Muda"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"}
-    },
+    "riwayat_pendidikan": ["S2", "Sosiologi"],
+    "nilai_potensi": 19.0,
+    "nilai_mansoskul": 86,
+    "nilai_kinerja": 4,
+    "nilai_kinerja_label": "Sangat Baik",
+    "masa_kerja": 17,
+    "masa_kerja_total_tahun": 17,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "6.00",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Layanan Kepegawaian Berbasis Digital yang diimplementasikan sesuai perencanaan",
+      "Pemutakhiran data pegawai dimonitoring dan dievaluasi secara berkala",
+      "Perencanaan kebutuhan SDM sesuai perhitungan ABK dilakukan secara akurat",
+      "Pengembangan kompetensi pegawai sesuai kebutuhan organisasi",
+      "Layanan konsultasi/pendampingan terkait perencanaan SDM dilaksanakan secara memuaskan"
+    ],
+    "posisi_nine_box_talenta": "Kotak 9 (Kinerja diatas ekspektasi dan potensi tinggi)"
+  },
+  {
+    "nip": "8",
+    "nama": "Nur Hidayah",
+    "nama_lengkap": "Nur Hidayah, S.H., M.H.",
+    "jabatan_nama": "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
+    "jabatan_terakhir": "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
+    "foto_url": null,
+    "pool": 4,
+    "pool_id": 531,
+    "fungsi_jabatan": [
+      "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
+      "Kepala Sub Bagian Peraturan pada Biro Hukum"
+    ],
+    "riwayat_jabatan": [
+      "Kepala Seksi Penyelesaian Masalah pada Biro Hukum",
+      "Kepala Sub Bagian Peraturan pada Biro Hukum"
+    ],
+    "riwayat_pendidikan": ["S2", "Hukum"],
+    "nilai_potensi": 15.0,
+    "nilai_mansoskul": 72,
+    "nilai_kinerja": 3,
+    "nilai_kinerja_label": "Baik",
+    "masa_kerja": 14,
+    "masa_kerja_total_tahun": 14,
+    "diklat_pim_level": "IV",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "3.00",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Mutasi",
+    "recommendation_type": "Mutasi",
+    "is_eligible": true,
+    "rhk": [
+      "Penyusunan peraturan dan regulasi internal diselesaikan tepat waktu",
+      "Penyelesaian masalah hukum dan sengketa ditangani sesuai ketentuan",
+      "Layanan konsultasi hukum kepada unit kerja dilaksanakan secara memuaskan"
+    ],
     "posisi_nine_box_talenta": "Kotak 4 (Kinerja diatas ekspektasi dan potensi rendah)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-009",
-      "nama": "Ir. Tri Wahyudi, M.Farm.",
-      "jabatan_saat_ini": "Auditor Ahli Madya pada Inspektorat II",
-      "unit_kerja": "Inspektorat II, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2022 - 2026",
-        "jabatan": "Auditor Ahli Madya pada Inspektorat II",
-        "durasi_tahun": 4,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit kinerja dan audit kepatuhan, memberikan rekomendasi perbaikan pengendalian intern, serta mendukung pengembangan perencanaan audit berbasis risiko."
-      },
-      {
-        "periode": "2017 - 2022",
-        "jabatan": "Auditor Ahli Pertama pada Inspektorat II",
-        "durasi_tahun": 5,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit operasional, menyusun working paper audit, serta membantu pemeliharaan dokumentasi Quality Assurance and Improvement Program (QAIP)."
-      }
+    "nip": "9",
+    "nama": "Hendra Wijaya",
+    "nama_lengkap": "Hendra Wijaya, S.Farm., Apt., M.Kes.",
+    "jabatan_nama": "Auditor Ahli Madya pada Inspektorat II",
+    "jabatan_terakhir": "Auditor Ahli Madya pada Inspektorat II",
+    "foto_url": null,
+    "pool": 8,
+    "pool_id": 536,
+    "fungsi_jabatan": [
+      "Auditor Ahli Madya pada Inspektorat II",
+      "Auditor Ahli Pertama pada Inspektorat II"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat III", "tahun": 2023, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikasi Auditor Internal Berbasis Risiko", "tahun": 2024, "keterangan": "Sertifikasi kompetensi teknis audit"}
+    "riwayat_jabatan": [
+      "Auditor Ahli Madya pada Inspektorat II",
+      "Auditor Ahli Pertama pada Inspektorat II",
+      "Pengawas Farmasi dan Makanan Ahli Muda"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Di Atas Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Semua unsur penilaian prestasi kerja bernilai baik"}
-    },
+    "riwayat_pendidikan": ["S2", "Kesehatan Masyarakat"],
+    "nilai_potensi": 20.5,
+    "nilai_mansoskul": 87,
+    "nilai_kinerja": 4,
+    "nilai_kinerja_label": "Sangat Baik",
+    "masa_kerja": 16,
+    "masa_kerja_total_tahun": 16,
+    "diklat_pim_level": "III",
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "3.50",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": true,
+    "rhk": [
+      "Pelaksanaan audit internal terhadap unit kerja diselesaikan tepat waktu",
+      "Monitoring dan evaluasi tindak lanjut hasil pengawasan terlaksana dengan baik",
+      "Penyusunan Laporan Akuntabilitas Kinerja Instansi Pemerintah (LAKIP) diselesaikan tepat waktu"
+    ],
     "posisi_nine_box_talenta": "Kotak 8 (Kinerja sesuai ekspektasi dan potensi tinggi)"
   },
   {
-    "kandidat_suksesi": {
-      "id": "KANDIDAT-010",
-      "nama": "Dr. Maya Putri, M.Sc.",
-      "jabatan_saat_ini": "Auditor Ahli Pertama pada Inspektorat I",
-      "unit_kerja": "Inspektorat I, Badan Pengawas Obat dan Makanan"
-    },
-    "rekam_jejak": [
-      {
-        "periode": "2024 - 2026",
-        "jabatan": "Auditor Ahli Pertama pada Inspektorat I",
-        "durasi_tahun": 2,
-        "deskripsi_tugas_dan_fungsi": "Melaksanakan audit kepatuhan dasar, menyusun working paper, dan mendukung pelaksanaan audit berbasis risiko."
-      }
+    "nip": "10",
+    "nama": "Maya Putri",
+    "nama_lengkap": "Maya Putri, S.Si., M.Sc.",
+    "jabatan_nama": "Auditor Ahli Pertama pada Inspektorat I",
+    "jabatan_terakhir": "Auditor Ahli Pertama pada Inspektorat I",
+    "foto_url": null,
+    "pool": 6,
+    "pool_id": 534,
+    "fungsi_jabatan": [
+      "Auditor Ahli Pertama pada Inspektorat I"
     ],
-    "sertifikasi": [
-      {"nama_sertifikasi": "Diklat Kepemimpinan Tingkat IV", "tahun": 2024, "keterangan": "Lulus dengan predikat Memuaskan"},
-      {"nama_sertifikasi": "Sertifikat Kemampuan Bahasa Inggris (TOEFL ITP)", "tahun": 2025, "keterangan": "Skor 510 (Cukup mampu berbahasa Inggris)"}
+    "riwayat_jabatan": [
+      "Auditor Ahli Pertama pada Inspektorat I"
     ],
-    "skp": {
-      "tahun_2024": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian besar unsur penilaian prestasi kerja bernilai baik"},
-      "tahun_2025": {"rating_hasil_kerja": "Sesuai Ekspektasi", "rating_perilaku_kerja": "Sesuai Ekspektasi", "keterangan": "Sebagian kecil unsur penilaian prestasi kerja perlu peningkatan"}
-    },
+    "riwayat_pendidikan": ["S2", "Biologi"],
+    "nilai_potensi": 22.0,
+    "nilai_mansoskul": 70,
+    "nilai_kinerja": 2,
+    "nilai_kinerja_label": "Cukup",
+    "masa_kerja": 8,
+    "masa_kerja_total_tahun": 8,
+    "diklat_pim_level": null,
+    "jenjang_pendidikan_id": "13",
+    "pengalaman_struktural_tahun": "0",
+    "current_eselon_id": null,
+    "target_eselon_id": "21",
+    "recommendation_label": "Promosi",
+    "recommendation_type": "Promosi",
+    "is_eligible": false,
+    "rhk": [
+      "Pelaksanaan audit internal terhadap unit kerja diselesaikan tepat waktu"
+    ],
     "posisi_nine_box_talenta": "Kotak 6 (Kinerja dibawah ekspektasi dan potensi tinggi)"
   }
 ]

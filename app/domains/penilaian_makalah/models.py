@@ -1,29 +1,121 @@
-from sqlalchemy import Column, Integer, String, Float, JSON, DateTime
-from sqlalchemy.sql import func
-from sqlalchemy.orm import declarative_base
+"""
+SQLAlchemy Models for Penilaian Makalah.
+"""
 
-# Di aplikasi sesungguhnya, Base akan di-import dari app.db.database
-Base = declarative_base()
+from datetime import datetime
+
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    JSON,
+    String,
+    Text,
+)
+
+from app.db.database import Base
+
 
 class EvaluationResult(Base):
+    """
+    Menyimpan hasil evaluasi makalah.
+    """
+
     __tablename__ = "evaluation_results"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    paper_filename = Column(String, index=True)
-    jabatan = Column(String, index=True)
-    scores = Column(JSON)
-    final_score = Column(Float)
-    justification = Column(JSON)
-    evidence = Column(JSON)
-    ringkasan = Column(String)
-    query_mode = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    paper_filename = Column(
+        String(255),
+        nullable=False,
+    )
+
+    jabatan = Column(
+        String(255),
+        nullable=False,
+    )
+
+    query_mode = Column(
+        String(50),
+        nullable=False,
+        default="hybrid",
+    )
+
+    scores = Column(
+        JSON,
+        nullable=False,
+    )
+
+    justification = Column(
+        JSON,
+        nullable=False,
+    )
+
+    evidence = Column(
+        JSON,
+        nullable=False,
+    )
+
+    uncertainty_metrics = Column(
+        JSON,
+        nullable=True,
+    )
+
+    ringkasan = Column(
+        Text,
+        nullable=True,
+    )
+
+    final_score = Column(
+        Float,
+        nullable=False,
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+
 
 class IngestionLog(Base):
-    __tablename__ = "ingestion_log"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, index=True)
-    status = Column(String)
-    error_message = Column(String, nullable=True)
-    ingested_at = Column(DateTime(timezone=True), server_default=func.now())
+    """
+    Log proses ingestion ke LightRAG.
+    """
+
+    __tablename__ = "ingestion_logs"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+    )
+
+    filename = Column(
+        String(255),
+        nullable=False,
+    )
+
+    status = Column(
+        String(30),
+        nullable=False,
+    )
+
+    error_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    ingested_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )

@@ -42,17 +42,33 @@ WAJIB output JSON dengan format:
     ...
   ]
 }"""
-    AGENT_SEARCH_PROMPT: str = """Kamu adalah Extractor Agent untuk Pemetaan Suksesor JPT BPOM.
-Tahap 2 - RETRIEVAL & EXTRACTION: Untuk setiap sub-tugas evaluasi, ekstrak informasi esensial dari data JSON kandidat.
+    AGENT_SEARCH_PROMPT: str = """Kamu adalah Search Agent untuk Pemetaan Suksesor JPT BPOM.
+
+Tugasmu: Untuk setiap sub-tugas evaluasi, cari informasi relevan dari basis data jabatan BPOM
+dan ekstrak informasi esensial dari data kandidat.
+
+KAMU MEMILIKI 3 TOOL RAG — PILIH YANG TEPAK:
+
+1. search_vector_rag(query): Cari konteks semantik tentang deskripsi jabatan, tugas pokok,
+   fungsi, atau persyaratan umum. Gunakan untuk pertanyaan deskriptif.
+
+2. search_graph_rag(entity): Cari relasi jabatan — siapa atasan langsung, unit terkait,
+   atau hubungan fungsi. Gunakan untuk pertanyaan tentang hierarki/relasi.
+   Ekstrak nama jabatan kunci dari konteks (contoh: "INSPEKTUR I", "DIREKTUR REGISTRASI OBAT").
+
+3. search_hybrid_rag(query, entity): Cari konteks lengkap (semantik + relasi).
+   Gunakan untuk pertanyaan kompleks yang membutuhkan keduanya.
 
 Sumber data kandidat:
 - rekam_jejak: riwayat jabatan, durasi, deskripsi tugas & fungsi
 - sertifikasi: diklat, sertifikasi kompetensi, kemampuan bahasa
 - skp: rating hasil kerja, rating perilaku, posisi nine-box talenta
 
-Tugas: Saring fakta-fakta yang relevan untuk setiap sub-tugas evaluasi.
-Tangkap frasa-frasa kunci (misal: "katalisator perubahan", "QAIP", "audit berbasis risiko")
-yang memiliki kecocokan semantik dengan fungsi jabatan target.
+ALUR KERJA:
+1. Untuk setiap sub-tugas, tentukan apakah perlu konteks RAG tambahan tentang jabatan target
+2. Jika ya, pilih tool RAG yang tepat dan panggil
+3. Ekstrak informasi esensial dari data kandidat yang relevan untuk sub-tugas
+4. Gabungkan extraction dengan konteks RAG
 
 WAJIB output JSON dengan format:
 {
@@ -60,7 +76,11 @@ WAJIB output JSON dengan format:
   "extractions": [
     {"sub_task_id": 1, "fakta": "...", "sumber": "rekam_jejak/sertifikasi/skp"},
     ...
-  ]
+  ],
+  "rag_context": {
+    "vector": "...",
+    "graph": "..."
+  }
 }"""
     AGENT_ANALYSIS_PROMPT: str = """Kamu adalah Analysis Agent untuk Pemetaan Suksesor JPT BPOM.
 Tahap 3 - VALIDATION / AUDIT: Lakukan dua jenis evaluasi:
@@ -160,7 +180,7 @@ WAJIB output JSON dengan format:
 
     # ── Simulation Constants ────────────────────────────────────────
     MAX_CONCURRENT_EVALUATIONS: int = 5
-    JABATAN_RULES_PATH: Path = Path(__file__).resolve().parent.parent / "dto" / "jabatan_rules.json"
+    JABATAN_RULES_DIR: Path = Path(__file__).resolve().parent.parent / "dto" / "jabatan_rules"
     CANDIDATES_JSON_PATH: Path = Path(__file__).resolve().parent.parent / "dto" / "candidates.json"
 
     NINE_BOX_DEFINITIONS: Dict[int, Dict[str, Any]] = {

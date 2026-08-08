@@ -1,165 +1,154 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+"""FastAPI router for penilaian_makalah."""
+
+from __future__ import annotations
+
 from typing import List
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-import os
-import threading
-import asyncio
 
-from app.db.database import get_db
-from app.core.config import Settings
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
-settings = Settings()
+from app.domains.penilaian_makalah.constant import DEFAULT_M_SAMPLES, DEFAULT_QUERY_MODE, DEFAULT_TEMPERATURE, SUPPORTED_QUERY_MODE
+from app.domains.penilaian_makalah.core.config import settings as domain_settings
+from app.domains.penilaian_makalah.schemas import EvaluateRequest, EvaluateResponse, ExportResponse, HistoryResponse, UploadKnowledgeResponse, UploadPaperResponse
+from app.domains.penilaian_makalah.service import PenilaianMakalahService, get_penilaian_makalah_service
 
-
-from .schemas import PenilaianRequest, PenilaianResponse, IngestResponse
-from .services import PenilaianService
-from .repositories import MinioRepository, EvaluationRepository, IngestionRepository
-
-SQLALCHEMY_DATABASE_URL = f"postgresql://{settings.PG_USER}:{settings.PG_PASS}@{settings.PG_HOST}:{settings.PG_PORT}/{settings.PG_DB}"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-# ── 2. Konfigurasi LightRAG Standalone ───────────────────────────────────────
-from lightrag import LightRAG
-from lightrag.llm.openai import openai_complete_if_cache, openai_embed
-from lightrag.utils import wrap_embedding_func_with_attrs
-
-_rag_instance = None
-
-async def _initialize_rag():
-    WORKING_DIR = os.getenv("LIGHTRAG_WORKING_DIR", "/rag_storage")
-    
-    async def llm_model_func(prompt, system_prompt=None, history_messages=[], keyword_extraction=False, **kwargs) -> str:
-        return await openai_complete_if_cache(
-            os.getenv("LLM_MODEL"),
-            prompt,
-            system_prompt=system_prompt,
-            history_messages=history_messages,
-            api_key=os.getenv("LLM_BINDING_API_KEY"),
-            base_url=os.getenv("LLM_BINDING_HOST"),
-            **kwargs,
-        )
-        
-    embedding_dim = int(os.getenv("EMBEDDING_DIM", 1536))
-    token_limit   = int(os.getenv("EMBEDDING_TOKEN_LIMIT", 8192))
-    model_name    = os.getenv("EMBEDDING_MODEL")
-
-    async def raw_embedding_func(texts):
-        return await openai_embed.func(
-            texts,
-            api_key=os.getenv("LLM_BINDING_API_KEY"),
-            base_url=os.getenv("LLM_BINDING_HOST"),
-            model=model_name,
-        )
-
-    embedding_func = wrap_embedding_func_with_attrs(
-        embedding_dim=embedding_dim,
-        max_token_size=token_limit,
-        model_name=model_name,
-    )(raw_embedding_func)
-
-    rag = LightRAG(
-        working_dir=WORKING_DIR,
-        llm_model_func=llm_model_func,
-        embedding_func=embedding_func,
-        kv_storage="PGKVStorage",
-        vector_storage="PGVectorStorage",
-        graph_storage="Neo4JStorage",
-        enable_llm_cache=False, 
-        enable_llm_cache_for_entity_extract=False,
-    )
-    await rag.initialize_storages()
-    return rag
-
-async def get_rag():
-    """Dependencies RAG yang diinisialisasi secara singleton menggunakan FastAPI loop."""
-    global _rag_instance
-    if _rag_instance is None:
-        _rag_instance = await _initialize_rag()
-    return _rag_instance
-
-
-# ── 3. API Router & Endpoints ────────────────────────────────────────────────
 router = APIRouter()
 
-def get_penilaian_service(db: Session = Depends(get_db), rag = Depends(get_rag)) -> PenilaianService:
-    minio_repo = MinioRepository()
-    db_repo = EvaluationRepository(db)
-    ingest_repo = IngestionRepository(db)
-    return PenilaianService(db_repo, minio_repo, rag, ingest_repo)
 
-@router.get("/jabatan", response_model=List[str])
-async def get_jabatan_list(service: PenilaianService = Depends(get_penilaian_service)):
-    """Mengembalikan daftar jabatan yang tersedia berdasarkan file SKJ di MinIO"""
-    return service.get_available_jabatan()
+@router.get("/health")
+async def health() -> dict:
+    return {
+        "status": "ok",
+        "bucket_makalah": domain_settings.bucket_makalah,
+        "bucket_tema": domain_settings.bucket_tema,
+        "bucket_knowledge": domain_settings.bucket_knowledge,
+    }
 
-@router.post("/ingest", response_model=IngestResponse)
-async def ingest_skj_documents(service: PenilaianService = Depends(get_penilaian_service)):
-    """Menelan (ingest) dokumen SKJ dari MinIO ke dalam LightRAG"""
-    try:
-        response = await service.ingest_skj_documents()
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/tema", response_model=List[str])
-async def get_tema_list(service: PenilaianService = Depends(get_penilaian_service)):
-    """Mengembalikan daftar file ketentuan tema dari MinIO"""
-    return service.minio_repo.list_files(service.minio_repo.BUCKET_TEMA)
+@router.get("/modes")
+async def supported_modes(service: PenilaianMakalahService = Depends(get_penilaian_makalah_service)) -> dict:
+    return {"data": service.get_supported_query_modes()}
 
-@router.get("/makalah", response_model=List[dict])
-async def get_makalah_list(service: PenilaianService = Depends(get_penilaian_service)):
-    """Mengembalikan daftar file makalah dari MinIO secara detail"""
-    return service.minio_repo.list_files_detailed(service.minio_repo.BUCKET_MAKALAH)
 
-@router.get("/makalah/{filename}/text")
-async def get_makalah_text(filename: str, service: PenilaianService = Depends(get_penilaian_service)):
-    """Mengambil dan mengekstrak teks dari makalah di MinIO"""
-    data = service.minio_repo.download_file(service.minio_repo.BUCKET_MAKALAH, filename)
-    if not data:
-        raise HTTPException(status_code=404, detail="File makalah tidak ditemukan di MinIO")
-    from .services import DocumentExtractor
-    text = DocumentExtractor.extract_from_bytes(data, filename)
-    return {"text": text}
-
-@router.post("/evaluate", response_model=PenilaianResponse)
-async def evaluate_makalah(request: PenilaianRequest, service: PenilaianService = Depends(get_penilaian_service)):
-    """Menjalankan proses evaluasi makalah dengan LLM"""
-    try:
-        response = await service.process_evaluation(request)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/history")
+@router.get("/history", response_model=HistoryResponse)
 async def get_history(
-    limit: int = 100,
-    service: PenilaianService = Depends(get_penilaian_service)
-):
-    history = await service.db_repo.get_history(limit=limit)
-    return history
+    limit: int = Query(100, ge=1, le=500),
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> HistoryResponse:
+    data = await service.list_history(limit=limit)
+    return HistoryResponse(total=len(data), data=data)
 
-@router.post("/upload/{kategori}")
-async def upload_document(kategori: str, file: UploadFile = File(...), service: PenilaianService = Depends(get_penilaian_service)):
-    """
-    Mengunggah dokumen ke MinIO.
-    Kategori yang didukung: 'makalah', 'tema', 'skj'
-    """
-    if kategori == "makalah":
-        bucket = service.minio_repo.BUCKET_MAKALAH
-    elif kategori == "tema":
-        bucket = service.minio_repo.BUCKET_TEMA
-    elif kategori == "skj":
-        bucket = service.minio_repo.BUCKET_SKJ
-    else:
-        raise HTTPException(status_code=400, detail=f"Kategori '{kategori}' tidak valid. Gunakan: makalah, tema, atau skj.")
-    
-    content = await file.read()
-    success = service.upload_document(bucket, file.filename, content)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Gagal mengunggah file ke MinIO")
-        
-    return {"message": "Berhasil", "filename": file.filename, "bucket": bucket}
+
+@router.get("/history/{history_id}")
+async def get_history_item(
+    history_id: int,
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> dict:
+    return await service.get_history_item(history_id)
+
+
+@router.get("/tema")
+async def list_tema_files(service: PenilaianMakalahService = Depends(get_penilaian_makalah_service)) -> dict:
+    return {"data": await service.get_minio_files(domain_settings.bucket_tema)}
+
+
+@router.get("/papers")
+async def list_papers(service: PenilaianMakalahService = Depends(get_penilaian_makalah_service)) -> dict:
+    return {"data": await service.get_minio_files(domain_settings.bucket_makalah, detailed=True)}
+
+
+@router.post("/evaluate", response_model=EvaluateResponse)
+async def evaluate_from_minio(
+    request: EvaluateRequest,
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> EvaluateResponse:
+    result = await service.evaluate_from_minio(
+        jabatan=request.jabatan,
+        paper_filename=request.paper_filename,
+        tema_filename=request.tema_filename,
+        query_mode=request.query_mode,
+        m_samples=request.m_samples,
+        temperature=request.temperature,
+        save_result=True,
+    )
+    return EvaluateResponse(
+        ringkasan=result.get("Ringkasan", ""),
+        final_score=result["final_score"],
+        scores=result["scores"],
+        justification=result["justification"],
+        evidence=result["evidence"],
+        uncertainty=result.get("uncertainty_metrics", {}),
+        valid_samples=result.get("valid_samples", 0),
+        total_samples=result.get("total_samples", 0),
+    )
+
+
+@router.post("/evaluate/upload", response_model=EvaluateResponse)
+async def evaluate_uploaded_file(
+    jabatan: str = Form(...),
+    tema_filename: str = Form(...),
+    query_mode: str = Form(DEFAULT_QUERY_MODE),
+    m_samples: int = Form(DEFAULT_M_SAMPLES),
+    temperature: float = Form(DEFAULT_TEMPERATURE),
+    paper: UploadFile = File(...),
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> EvaluateResponse:
+    uploaded_data = await paper.read()
+    result = await service.evaluate_uploaded_file(
+        jabatan=jabatan,
+        tema_filename=tema_filename,
+        uploaded_filename=paper.filename,
+        uploaded_data=uploaded_data,
+        query_mode=query_mode,
+        m_samples=m_samples,
+        temperature=temperature,
+        save_result=True,
+    )
+    return EvaluateResponse(
+        ringkasan=result.get("Ringkasan", ""),
+        final_score=result["final_score"],
+        scores=result["scores"],
+        justification=result["justification"],
+        evidence=result["evidence"],
+        uncertainty=result.get("uncertainty_metrics", {}),
+        valid_samples=result.get("valid_samples", 0),
+        total_samples=result.get("total_samples", 0),
+    )
+
+
+@router.post("/evaluate/raw")
+async def evaluate_raw(
+    request: EvaluateRequest,
+    makalah_text: str = Form(...),
+    tema_text: str = Form(...),
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> dict:
+    return await service.evaluate_from_text(
+        paper_filename=request.paper_filename,
+        jabatan=request.jabatan,
+        makalah_text=makalah_text,
+        tema_text=tema_text,
+        query_mode=request.query_mode,
+        m_samples=request.m_samples,
+        temperature=request.temperature,
+        save_result=True,
+    )
+
+
+@router.post("/upload/paper", response_model=UploadPaperResponse)
+async def upload_paper(
+    file: UploadFile = File(...),
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> UploadPaperResponse:
+    data = await file.read()
+    uploaded = await service.upload_document(domain_settings.bucket_makalah, file.filename, data)
+    return UploadPaperResponse(filename=file.filename, uploaded=uploaded, message="Paper uploaded" if uploaded else "Upload failed")
+
+
+@router.post("/upload/knowledge", response_model=UploadKnowledgeResponse)
+async def upload_knowledge(
+    file: UploadFile = File(...),
+    service: PenilaianMakalahService = Depends(get_penilaian_makalah_service),
+) -> UploadKnowledgeResponse:
+    data = await file.read()
+    uploaded = await service.upload_document(domain_settings.bucket_knowledge, file.filename, data)
+    return UploadKnowledgeResponse(filename=file.filename, ingested=uploaded, message="Knowledge uploaded" if uploaded else "Upload failed")

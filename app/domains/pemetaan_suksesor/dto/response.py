@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -124,43 +124,45 @@ class NineBoxResponse(BaseModel):
     data: NineBoxData
 
 
-class RekamJejakItem(BaseModel):
-    """Satu entri rekam jejak jabatan kandidat."""
-
-    periode: str
-    jabatan: str
-    durasi_tahun: int
-    deskripsi_tugas_dan_fungsi: str
-
-
-class SertifikasiItem(BaseModel):
-    """Satu entri sertifikasi kandidat."""
-
-    nama_sertifikasi: str
-    tahun: int
-    keterangan: str
-
-
-class SkpTahunItem(BaseModel):
-    """Data SKP satu tahun."""
-
-    rating_hasil_kerja: str
-    rating_perilaku_kerja: str
-    keterangan: str
-
-
 class KandidatCard(BaseModel):
-    """Data kandidat untuk daftar pilihan di Step 3."""
+    """Data kandidat SIASN — format CandidateInput-compatible untuk pipeline.
 
-    id: str
+    Field-field sama persis dengan CandidateInput di dto/pipeline.py,
+    sehingga response endpoint kandidat bisa langsung dipakai sebagai
+    candidates array di PlannerRequest tanpa transformasi.
+    """
+
+    model_config = {"extra": "allow"}
+
+    nip: str
     nama: str
-    jabatan_saat_ini: str
-    unit_kerja: str
+    nama_lengkap: str
+    jabatan_nama: str
+    jabatan_terakhir: str
+    fungsi_jabatan: List[str] = []
+    riwayat_jabatan: List[str] = []
+    riwayat_pendidikan: List[str] = []
+    nilai_potensi: Optional[float] = None
+    nilai_mansoskul: Optional[int] = None
+    nilai_kinerja: Optional[float] = None
+    nilai_kinerja_label: Optional[str] = None
+    masa_kerja: Optional[int] = None
+    masa_kerja_total_tahun: Optional[int] = None
+    pengalaman_struktural_tahun: Optional[str] = None
+    diklat_pim_level: Optional[str] = None
+    jenjang_pendidikan_id: Optional[str] = None
+    current_eselon_id: Optional[str] = None
+    target_eselon_id: Optional[str] = None
+    recommendation_label: Optional[str] = None
+    recommendation_type: Optional[str] = None
+    is_eligible: Optional[bool] = None
+    rhk: List[str] = []
+    foto_url: Optional[str] = None
+    pool: Optional[int] = None
+    pool_id: Optional[int] = None
+    # Nine-box metadata (UI-only, not part of CandidateInput)
+    posisi_nine_box_talenta: Optional[str] = None
     box_number: int
-    rekam_jejak: List[RekamJejakItem]
-    sertifikasi: List[SertifikasiItem]
-    skp: Dict[str, SkpTahunItem]
-    posisi_nine_box_talenta: str
 
 
 class KandidatListData(BaseModel):
@@ -168,7 +170,7 @@ class KandidatListData(BaseModel):
 
     total: int
     filtered_boxes: List[int]
-    kandidat: List[KandidatCard]
+    candidates: List[KandidatCard]
 
 
 class KandidatListResponse(BaseModel):
@@ -201,6 +203,7 @@ class MatchingHistoryDetail(BaseModel):
     top_kandidat: List[Dict]
     sub_tugas: Optional[List[Dict]] = None
     catatan_reviewer: Optional[str] = None
+    pipeline_result: Optional[Dict] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -235,3 +238,74 @@ class MatchingHistorySaveResponse(BaseModel):
 
     message: str
     data: MatchingHistoryDetail
+
+
+class IngestResult(BaseModel):
+    filename: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    content_hash: str
+    message: str | None = None
+
+
+class IngestResponse(BaseModel):
+    total_documents: int
+    results: list[IngestResult]
+
+
+class IngestLogSummary(BaseModel):
+    id: int
+    filename: str
+    content_hash: str
+    status: str
+    chunk_count: int
+    entity_count: int
+    ingested_at: str
+
+
+class IngestLogListResponse(BaseModel):
+    message: str
+    data: list[IngestLogSummary]
+
+
+class IngestLogDetailResponse(BaseModel):
+    message: str
+    data: IngestLogSummary
+
+
+class UploadResponse(BaseModel):
+    filename: str
+    minio_path: str
+    ingest_result: IngestResult
+
+class JobAcceptedResponse(BaseModel):
+    job_id: str
+    status: str = "in_progress"
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    id: str
+    task: str
+    status: str
+    started_at: str
+    finished_at: Optional[str] = None
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+class AgentUsage(BaseModel):
+    """Token usage metadata from agent execution."""
+
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+class AgentResponse(BaseModel):
+    """Response from running a single agent."""
+
+    agent_name: str
+    message: Optional[str] = None
+    output: Optional[dict] = None
+    usage: Optional[AgentUsage] = None

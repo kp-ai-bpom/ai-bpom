@@ -1,0 +1,50 @@
+{
+  "deskripsi_jabatan": {
+    "nama_jabatan": "Sekretaris Utama",
+    "atasan_langsung": "Kepala Badan Pengawas Obat dan Makanan",
+    "tugas": "Menyelenggarakan koordinasi pelaksanaan tugas, pembinaan, dan pemberian dukungan administrasi kepada seluruh unit organisasi di lingkungan BPOM.",
+    "fungsi": [
+      "koordinasi kegiatan BPOM",
+      "koordinasi dan penyusunan rencana, program, dan anggaran di lingkungan BPOM",
+      "pembinaan dan pemberian dukungan administrasi yang meliputi ketatausahaan, kepegawaian, keuangan, kerumahtanggaan, kerja sama, hubungan masyarakat, arsip, dan dokumentasi",
+      "pembinaan dan penataan organisasi dan tata laksana",
+      "koordinasi dan penyusunan peraturan perundangundangan serta pelaksanaan advokasi hukum",
+      "penyelenggaraan pengelolaan barang milik/ kekayaan negara dan layanan pengadaan barang/jasa; dan",
+      "pelaksanaan fungsi lain yang diberikan oleh Kepala Badan"
+    ]
+  },
+  "persyaratan": {
+    "status_kepegawaian": "",
+    "usia_maksimal": "Usia paling tinggi 58 (lima puluh delapan) tahun 0 (nol) hari pada saat pelantikan",
+    "pangkat_golongan": "Pangkat/Golongan minimal Pembina Utama Muda (IV/c)",
+    "kualifikasi_pendidikan": "Memiliki kualifikasi pendidikan paling rendah Pasca Sarjana (S2) / Doktor (S3) / Profesi",
+    "pengalaman_jabatan_struktural": "Sedang atau pernah menduduki JPT Pratama (Eselon II) atau Jabatan Fungsional Ahli Utama paling singkat 2 (dua) tahun",
+    "pelatihan_kepemimpinan": "Telah mengikuti/lulus Diklat Kepemimpinan Tingkat I, dan/atau Diklat Kepemimpinan Tingkat II bagi Pejabat Pimpinan Tinggi Pratama",
+    "penilaian_prestasi": "Semua unsur penilaian prestasi kerja sekurang-kurangnya bernilai baik dalam 2 (dua) tahun terakhir",
+    "hukuman_disiplin": "Tidak sedang menjalani hukuman disiplin sedang/berat, dibuktikan dengan surat pernyataan Pejabat Pimpinan Tinggi Pratama yang membidangi kepegawaian/Pejabat yang diberi wewenang",
+    "kesehatan": "Sehat jasmani dan rohani yang dibuktikan dengan surat keterangan dokter",
+    "pelaporan_kekayaan_pajak": "Telah menyerahkan LHKPN/LHKASN dan SPT Tahunan terakhir",
+    "integritas": [
+      "Telah menandatangani pakta integritas pada jenjang jabatan yang dipangku saat mengikuti seleksi terbuka",
+      "Memiliki rekam jejak Jabatan, integritas, dan moralitas yang baik"
+    ],
+    "kompetensi": "Memiliki kompetensi manajerial, kompetensi teknis dan kompetensi jabatan yang ditetapkan",
+    "kemampuan_bahasa": "Mampu berbahasa Inggris dengan baik, secara lisan maupun tulisan",
+    "pengalaman_bidang_tugas": {
+      "durasi_kumulatif": "Memiliki pengalaman jabatan dalam bidang tugas yang terkait dengan jabatan yang akan diduduki secara kumulatif paling singkat selama 7 (tujuh) tahun",
+      "kompetensi_spesifik": [
+        "Menyusun perangkat norma standar prosedur instrumen penerapan manajemen SDM",
+        "Membuat kebijakan terintegrasi terkait penyusunan rencana kerja dan anggaran",
+        "Mengembangkan, konsep, teori, kebijakan advokasi kebijakan Bidang Pengawasan Obat dan Makanan yang sinergis dan terintegrasi yang berdampak nasional",
+        "Menyempurnakan naskah rancangan dalam Pembentukan Peraturan Perundangundangan",
+        "Mengevaluasi dan menyusun perangkat norma standar prosedur instrumen Pengelolaan Barang Milik Negara",
+        "Perumusan Kebijakan dan Dokumen",
+        "Manajemen Keuangan dan Aset",
+        "Manajemen Kepegawaian",
+        "Tata Laksana Organisasi",
+        "Reformasi Birokrasi dan Pengawasan",
+        "Koordinasi Antar-Instansi"
+      ]
+    }
+  }
+}

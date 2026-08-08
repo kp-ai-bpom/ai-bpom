@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 
 from app.core.logger import log
@@ -136,18 +136,44 @@ async def import_base_knowledge_csv(
 @router.post(
     "/chat",
     response_model=SendMessageResponse,
-    responses={400: {"model": ChatErrorResponse}, 500: {"model": ChatErrorResponse}},
+    responses={
+        400: {"model": ChatErrorResponse},
+        500: {"model": ChatErrorResponse},
+    },
 )
 async def send_message(
     request: SendMessageRequest,
+    x_eval_ablate: str | None = Header(default=None, alias="X-Eval-Ablate"),
     service: ChatbotService = Depends(get_chatbot_pipeline_service),
 ):
-    """Endpoint untuk mengirim pesan dan menghasilkan query SQL."""
+    """Endpoint untuk mengirim pesan dan menghasilkan query SQL.
+
+    Request body (selalu sama, 3 field):
+        { "user_id": str, "session_id": str | null, "message": str }
+
+    Response body discriminated by `data.type`:
+        - `type="answer"`     → query/explanation berisi SQL final, options=[]
+        - `type="clarification"` → options=[{id, label}], query="" & explanation=""
+
+    Backend auto-detects intent berdasarkan ada/tidaknya pending clarification
+    untuk session_id terkait — frontend tidak perlu mengirim flag eksplisit.
+
+    Header opsional ``X-Eval-Ablate`` (eval-only): CSV nama tahap yang ingin
+    dimatikan untuk benchmark ablation. Nilai dikenali:
+    ``rewriting`` (Stage 1), ``ambiguity`` (Stage 3), ``active_filter``
+    (Stage 5b). Contoh: ``X-Eval-Ablate: ambiguity,active_filter``.
+    """
+    ablate_stages = frozenset(
+        token.strip().lower()
+        for token in (x_eval_ablate or "").split(",")
+        if token.strip()
+    )
     try:
         result = await service.send_message(
             user_id=request.user_id,
             message=request.message,
             session_id=request.session_id,
+            ablate_stages=ablate_stages,
         )
     except ValueError as exc:
         log.warning(

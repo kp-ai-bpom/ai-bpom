@@ -147,11 +147,18 @@ class AgentManager:
             model_tier = self._get_model_tier(agent_name)
             system_prompt = DEFAULT_PROMPTS[agent_name]
 
+            # Search agent gets RAG tools
+            agent_tools = []
+            if agent_name == "search":
+                from ..rag.manager import get_rag_manager
+                rag_manager = get_rag_manager()
+                agent_tools = rag_manager.tools
+
             self._agents[agent_name] = self._create_agent(
                 name=agent_name,
                 model_tier=model_tier,
                 system_prompt=system_prompt,
-                tools=[],
+                tools=agent_tools,
             )
 
         # Create analysis agent pool for concurrent evaluations

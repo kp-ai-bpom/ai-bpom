@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from app.core.logger import log
 
 from ..core.agent import AgentAdapter, init_agents
-from ..dto.request import KandidatSuksesi
+from ..dto.request import KandidatSIASN
 from ..dto.response import (
     DetailEvaluasi,
     KandidatCard,
@@ -17,11 +17,8 @@ from ..dto.response import (
     NineBoxData,
     NineBoxItem,
     NineBoxResponse,
-    RekamJejakItem,
-    SertifikasiItem,
     SimulasiDataResponse,
     SimulasiResponse,
-    SkpTahunItem,
 )
 from ..core.config import settings as local_settings
 from .helpers import _extract_json, _load_candidates, _parse_box_number, _run_agent_async
@@ -60,7 +57,7 @@ class SimulationService:
     async def run(
         self,
         target_jabatan: str,
-        kandidat_list: List[KandidatSuksesi],
+        kandidat_list: List[KandidatSIASN],
         top_n: int = 5,
     ) -> SimulasiResponse:
         """
@@ -99,19 +96,26 @@ class SimulationService:
         for a in self._agents.analysis_pool:
             agent_queue.put_nowait(a)
 
-        async def _eval_one(kandidat: KandidatSuksesi) -> Dict:
-            kandidat_id = kandidat.kandidat_suksesi.id
-            kandidat_nama = kandidat.kandidat_suksesi.nama
+        async def _eval_one(kandidat: KandidatSIASN) -> Dict:
+            kandidat_id = kandidat.nip
+            kandidat_nama = kandidat.nama
+
+            # Tahap 2: Search agent retrieves RAG context
+            search_result = await self._search_with_rag(
+                kandidat, target_jabatan, sub_tasks
+            )
+
             agent = await agent_queue.get()
             try:
                 log.info(
                     f"🔍 [paralel] Mengevaluasi {kandidat_nama} ({kandidat_id})..."
                 )
                 evaluation = await self._evaluate_candidate(
-                    kandidat, target_jabatan, sub_tasks, agent=agent
+                    kandidat, target_jabatan, sub_tasks, agent=agent,
+                    search_result=search_result,
                 )
                 evaluation.setdefault(
-                    "jabatan_saat_ini", kandidat.kandidat_suksesi.jabatan_saat_ini
+                    "jabatan_saat_ini", kandidat.jabatan_nama
                 )
                 log.info(f"✅ [paralel] {kandidat_nama} ({kandidat_id}) selesai")
                 return evaluation
@@ -126,7 +130,7 @@ class SimulationService:
         }
 
         log.info(
-            f"✅ Tahap 2+3 selesai — {len(evaluation_results)} kandidat dievaluasi "
+            f"✅ Tahap 2+3 selesai (RAG-enhanced) — {len(evaluation_results)} kandidat dievaluasi "
             f"(pool={len(self._agents.analysis_pool)})"
         )
 
@@ -157,20 +161,25 @@ class SimulationService:
     # ── Nine-Box & Kandidat Data ────────────────────────────────────
 
     @staticmethod
+    def load_candidates() -> List[Dict]:
+        """Wrapper for _load_candidates helper."""
+        return _load_candidates()
+
+    @staticmethod
     def get_nine_box_data() -> NineBoxResponse:
         """
         Mengembalikan data nine-box talenta grid.
         Setiap box berisi: label, kinerja, potensi, selectable flag,
         jumlah kandidat, dan daftar nama kandidat (untuk tooltip).
         """
-        candidates = _load_candidates()
+        candidates = SimulationService.load_candidates()
 
         box_candidates: Dict[int, List[str]] = {i: [] for i in range(1, 10)}
         for c in candidates:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num and 1 <= box_num <= 9:
-                nama = c.get("kandidat_suksesi", {}).get("nama", "")
+                nama = c.get("nama", "")
                 if nama:
                     box_candidates[box_num].append(nama)
 
@@ -198,15 +207,15 @@ class SimulationService:
     def get_kandidat_by_boxes(boxes: List[int]) -> KandidatListResponse:
         """
         Mengembalikan kandidat yang berada di box-box terpilih,
-        lengkap dengan ringkasan untuk kartu UI.
+        lengkap dengan ringkasan untuk kartu UI (format SIASN).
         """
-        candidates = _load_candidates()
+        candidates = SimulationService.load_candidates()
 
         valid_boxes = [b for b in boxes if 1 <= b <= 9]
         if not valid_boxes:
             return KandidatListResponse(
                 message="Tidak ada box valid yang dipilih",
-                data=KandidatListData(total=0, filtered_boxes=valid_boxes, kandidat=[]),
+                data=KandidatListData(total=0, filtered_boxes=valid_boxes, candidates=[]),
             )
 
         filtered = []
@@ -214,50 +223,36 @@ class SimulationService:
             posisi = c.get("posisi_nine_box_talenta", "")
             box_num = _parse_box_number(posisi)
             if box_num in valid_boxes:
-                profil = c.get("kandidat_suksesi", {})
-
-                rekam_jejak = [
-                    RekamJejakItem(
-                        periode=r.get("periode", ""),
-                        jabatan=r.get("jabatan", ""),
-                        durasi_tahun=r.get("durasi_tahun", 0),
-                        deskripsi_tugas_dan_fungsi=r.get(
-                            "deskripsi_tugas_dan_fungsi", ""
-                        ),
-                    )
-                    for r in c.get("rekam_jejak", [])
-                ]
-
-                sertifikasi = [
-                    SertifikasiItem(
-                        nama_sertifikasi=s.get("nama_sertifikasi", ""),
-                        tahun=s.get("tahun", 0),
-                        keterangan=s.get("keterangan", ""),
-                    )
-                    for s in c.get("sertifikasi", [])
-                ]
-
-                skp_raw = c.get("skp", {})
-                skp = {
-                    k: SkpTahunItem(
-                        rating_hasil_kerja=v.get("rating_hasil_kerja", ""),
-                        rating_perilaku_kerja=v.get("rating_perilaku_kerja", ""),
-                        keterangan=v.get("keterangan", ""),
-                    )
-                    for k, v in skp_raw.items()
-                }
-
                 filtered.append(
                     KandidatCard(
-                        id=profil.get("id", ""),
-                        nama=profil.get("nama", ""),
-                        jabatan_saat_ini=profil.get("jabatan_saat_ini", ""),
-                        unit_kerja=profil.get("unit_kerja", ""),
-                        box_number=box_num,
-                        rekam_jejak=rekam_jejak,
-                        sertifikasi=sertifikasi,
-                        skp=skp,
+                        nip=c.get("nip", ""),
+                        nama=c.get("nama", ""),
+                        nama_lengkap=c.get("nama_lengkap", ""),
+                        jabatan_nama=c.get("jabatan_nama", ""),
+                        jabatan_terakhir=c.get("jabatan_terakhir", ""),
+                        fungsi_jabatan=c.get("fungsi_jabatan", []),
+                        riwayat_jabatan=c.get("riwayat_jabatan", []),
+                        riwayat_pendidikan=c.get("riwayat_pendidikan", []),
+                        nilai_potensi=c.get("nilai_potensi"),
+                        nilai_mansoskul=c.get("nilai_mansoskul"),
+                        nilai_kinerja=c.get("nilai_kinerja"),
+                        nilai_kinerja_label=c.get("nilai_kinerja_label"),
+                        masa_kerja=c.get("masa_kerja"),
+                        masa_kerja_total_tahun=c.get("masa_kerja_total_tahun"),
+                        pengalaman_struktural_tahun=c.get("pengalaman_struktural_tahun"),
+                        diklat_pim_level=c.get("diklat_pim_level"),
+                        jenjang_pendidikan_id=c.get("jenjang_pendidikan_id"),
+                        current_eselon_id=c.get("current_eselon_id"),
+                        target_eselon_id=c.get("target_eselon_id"),
+                        recommendation_label=c.get("recommendation_label"),
+                        recommendation_type=c.get("recommendation_type"),
+                        is_eligible=c.get("is_eligible"),
+                        rhk=c.get("rhk", []),
+                        foto_url=c.get("foto_url"),
+                        pool=c.get("pool"),
+                        pool_id=c.get("pool_id"),
                         posisi_nine_box_talenta=posisi,
+                        box_number=box_num,
                     )
                 )
 
@@ -266,65 +261,67 @@ class SimulationService:
             data=KandidatListData(
                 total=len(filtered),
                 filtered_boxes=valid_boxes,
-                kandidat=filtered,
+                candidates=filtered,
             ),
         )
 
     # ── Rules Loader (hardcoded — nanti diganti Hybrid RAG) ─────────
 
     @staticmethod
-    def _load_jabatan_rules(target_jabatan: str) -> Dict | None:
+    def _load_all_jabatan_rules() -> List[Dict]:
         """
-        Load aturan jabatan dari jabatan_rules.json.
-        Mengembalikan seluruh data (deskripsi + persyaratan) jika ditemukan.
-        Nanti diganti dengan Hybrid RAG (GraphRAG + VectorRAG).
+        Load semua aturan jabatan dari folder jabatan_rules/.
+        Setiap file JSON berisi data satu jabatan (deskripsi + persyaratan).
         """
         import app.domains.pemetaan_suksesor.core.config as _c
 
-        if _c._jabatan_rules_cache is None:
+        if _c._jabatan_rules_cache is not None:
+            assert _c._jabatan_rules_cache is not None
+            return _c._jabatan_rules_cache
+
+        rules_dir = local_settings.JABATAN_RULES_DIR
+        if not rules_dir.is_dir():
+            log.warning(f"⚠️ Folder jabatan_rules tidak ditemukan: {rules_dir}")
+            _c._jabatan_rules_cache = []
+            return []
+
+        entries: List[Dict] = []
+        for json_file in sorted(rules_dir.glob("*.json")):
             try:
-                with open(local_settings.JABATAN_RULES_PATH, encoding="utf-8") as f:
-                    raw = json.load(f)
-                if "deskripsi_jabatan" in raw:
-                    _c._jabatan_rules_cache = [raw]
-                elif isinstance(raw, list):
-                    _c._jabatan_rules_cache = raw
+                with open(json_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and "deskripsi_jabatan" in data:
+                    entries.append(data)
                 else:
-                    _c._jabatan_rules_cache = []
-                log.info(
-                    f"📋 Jabatan rules loaded — {len(_c._jabatan_rules_cache)} posisi"
-                )
-            except FileNotFoundError:
-                log.warning("⚠️ jabatan_rules.json tidak ditemukan")
-                _c._jabatan_rules_cache = []
-                return None
+                    log.warning(f"⚠️ {json_file.name}: format tidak valid (tanpa deskripsi_jabatan)")
             except json.JSONDecodeError:
-                log.warning("⚠️ jabatan_rules.json format tidak valid")
-                _c._jabatan_rules_cache = []
-                return None
+                log.warning(f"⚠️ {json_file.name}: JSON tidak valid")
 
-        assert _c._jabatan_rules_cache is not None
+        _c._jabatan_rules_cache = entries
+        log.info(f"📋 Jabatan rules loaded — {len(entries)} posisi dari {rules_dir}")
+        return entries
 
+    @staticmethod
+    def _load_jabatan_rules(target_jabatan: str) -> Dict | None:
+        """
+        Cari aturan jabatan berdasarkan nama jabatan.
+        Mengembalikan seluruh data (deskripsi + persyaratan) jika ditemukan.
+        """
+        all_rules = SimulationService._load_all_jabatan_rules()
         normalized = target_jabatan.lower().strip()
-        for entry in _c._jabatan_rules_cache:
+        for entry in all_rules:
             nama = entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
             if nama.lower().strip() == normalized:
                 return entry
-
         return None
 
     @staticmethod
     def list_available_jabatan() -> List[str]:
-        """Return daftar nama jabatan yang tersedia di jabatan_rules.json."""
-        import app.domains.pemetaan_suksesor.core.config as _c
-
-        if _c._jabatan_rules_cache is None:
-            SimulationService._load_jabatan_rules("")
-
-        assert _c._jabatan_rules_cache is not None
+        """Return daftar nama jabatan yang tersedia di folder jabatan_rules."""
+        all_rules = SimulationService._load_all_jabatan_rules()
         return [
             entry.get("deskripsi_jabatan", {}).get("nama_jabatan", "")
-            for entry in _c._jabatan_rules_cache
+            for entry in all_rules
             if entry.get("deskripsi_jabatan", {}).get("nama_jabatan")
         ]
 
@@ -404,14 +401,47 @@ class SimulationService:
             },
         ]
 
+    # ── Tahap 2: Search with RAG ──────────────────────────────────
+
+    async def _search_with_rag(
+        self,
+        kandidat: KandidatSIASN,
+        target_jabatan: str,
+        sub_tasks: List[Dict],
+    ) -> Dict:
+        """Search agent retrieves RAG context and extracts candidate info per sub-task."""
+        kandidat_json = kandidat.model_dump(mode="json")
+        prompt = (
+            f"Jabatan Target: {target_jabatan}\n"
+            f"Data Kandidat:\n```json\n{json.dumps(kandidat_json, ensure_ascii=False, indent=2)}\n```\n\n"
+            f"Sub-Tugas Evaluasi:\n```json\n{json.dumps(sub_tasks, ensure_ascii=False, indent=2)}\n```\n\n"
+            "Untuk setiap sub-tugas, tentukan apakah perlu konteks RAG tentang jabatan target.\n"
+            "Jika ya, gunakan tool RAG yang tepat lalu ekstrak info relevan dari data kandidat.\n"
+            "Output WAJIB JSON sesuai format di system prompt Search Agent."
+        )
+        raw = await self._run_and_track(self._agents.search, prompt)
+        parsed = _extract_json(raw)
+
+        if parsed and isinstance(parsed, dict):
+            parsed.setdefault("id_kandidat", kandidat.nip)
+            return parsed
+
+        log.warning(f"⚠️ Search agent fallback untuk {kandidat.nip}")
+        return {
+            "id_kandidat": kandidat.nip,
+            "extractions": [],
+            "rag_context": {},
+        }
+
     # ── Tahap 2+3: Evaluate single candidate ──────────────────────
 
     async def _evaluate_candidate(
         self,
-        kandidat: KandidatSuksesi,
+        kandidat: KandidatSIASN,
         target_jabatan: str,
         sub_tasks: List[Dict],
         agent: Any = None,
+        search_result: Dict | None = None,
     ) -> Dict:
         """Search (extract) + Analysis (L-Eval + C-Eval) untuk satu kandidat."""
         eval_agent = agent or self._agents.analysis
@@ -445,13 +475,27 @@ class SimulationService:
                     f"{json.dumps(all_keywords, ensure_ascii=False)}\n"
                 )
 
+        # Include RAG context from search agent
+        rag_context = ""
+        if search_result:
+            rag_data = search_result.get("rag_context", {})
+            if rag_data.get("vector"):
+                rag_context += f"\n[Konteks VectorRAG tentang Jabatan Target]\n{rag_data['vector']}\n"
+            if rag_data.get("graph"):
+                rag_context += f"\n[Konteks GraphRAG tentang Jabatan Target]\n{rag_data['graph']}\n"
+
+            extractions = search_result.get("extractions", [])
+            if extractions:
+                rag_context += f"\n[Ekstraksi Search Agent]\n{json.dumps(extractions, ensure_ascii=False, indent=2)}\n"
+
         prompt = (
             f"Jabatan Target: {target_jabatan}\n"
             f"{context_extra}\n"
+            f"{rag_context}\n"
             f"Data Kandidat:\n```json\n{json.dumps(kandidat_json, ensure_ascii=False, indent=2)}\n```\n\n"
             f"Sub-Tugas Evaluasi:\n```json\n{json.dumps(sub_tasks, ensure_ascii=False, indent=2)}\n```\n\n"
-            "Tahap 2 — Ekstrak informasi esensial kandidat untuk setiap sub-tugas.\n"
             "Tahap 3 — Lakukan Logical Evaluation (L-Eval) dan Counterfactual Evaluation (C-Eval).\n"
+            "Gunakan konteks RAG di atas untuk memperkaya evaluasi.\n"
             "Output WAJIB JSON sesuai format yang ditentukan di system prompt Analysis Agent."
         )
 
@@ -459,14 +503,14 @@ class SimulationService:
         parsed = _extract_json(raw)
 
         if parsed and isinstance(parsed, dict):
-            parsed.setdefault("id_kandidat", kandidat.kandidat_suksesi.id)
-            parsed.setdefault("nama", kandidat.kandidat_suksesi.nama)
+            parsed.setdefault("id_kandidat", kandidat.nip)
+            parsed.setdefault("nama", kandidat.nama)
             return parsed
 
-        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.kandidat_suksesi.id}")
+        log.warning(f"⚠️ Fallback evaluasi untuk {kandidat.nip}")
         return {
-            "id_kandidat": kandidat.kandidat_suksesi.id,
-            "nama": kandidat.kandidat_suksesi.nama,
+            "id_kandidat": kandidat.nip,
+            "nama": kandidat.nama,
             "l_eval": {"keputusan": "REJECT", "alasan": "Gagal memproses evaluasi"},
             "c_eval": {
                 "keputusan": "REJECT",

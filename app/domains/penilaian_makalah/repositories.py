@@ -1,152 +1,68 @@
-import os
-import logging
-from typing import List, Optional
-from neo4j import AsyncSession
+"""Async repository layer for penilaian_makalah."""
+
+from __future__ import annotations
+
+from typing import Any
+
 from sqlalchemy import select
-from sqlalchemy.orm import Session
-from .models import EvaluationResult
+from sqlalchemy.ext.asyncio import AsyncSession
 
-try:
-    import boto3
-    from botocore.client import Config
-except ImportError:
-    boto3 = None
-
-log = logging.getLogger(__name__)
-
-class MinioRepository:
-    def __init__(self):
-        # Di environment nyata, gunakan settings dari pydantic config (app.core.config)
-        self.endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-        self.access_key = os.getenv("MINIO_ACCESS_KEY", "")
-        self.secret_key = os.getenv("MINIO_SECRET_KEY", "")
-        
-        self.BUCKET_MAKALAH = os.getenv("BUCKET_MAKALAH", "makalah")
-        self.BUCKET_TEMA = os.getenv("BUCKET_TEMA", "ketentuan-penulisan-makalah")
-        self.BUCKET_RIWAYAT = os.getenv("BUCKET_RIWAYAT", "riwayat-penilaian-makalah")
-        self.BUCKET_SKJ = os.getenv("BUCKET_SKJ", "skj-json")
-
-        if boto3:
-            self.client = boto3.client(
-                "s3",
-                endpoint_url=self.endpoint,
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                config=Config(signature_version="s3v4"),
-            )
-        else:
-            self.client = None
-            log.warning("boto3 is not installed. MinIO operations will fail.")
-
-    def ensure_bucket(self, bucket_name: str):
-        if not self.client: return
-        try:
-            existing = [b["Name"] for b in self.client.list_buckets().get("Buckets", [])]
-            if bucket_name not in existing:
-                self.client.create_bucket(Bucket=bucket_name)
-        except Exception as e:
-            log.warning(f"Could not ensure bucket '{bucket_name}': {e}")
-
-    def list_files(self, bucket: str) -> List[str]:
-        if not self.client: return []
-        try:
-            resp = self.client.list_objects_v2(Bucket=bucket)
-            return [obj["Key"] for obj in resp.get("Contents", [])]
-        except Exception:
-            return []
-
-    def list_files_detailed(self, bucket: str) -> List[dict]:
-        if not self.client: return []
-        try:
-            resp = self.client.list_objects_v2(Bucket=bucket)
-            results = []
-            for obj in resp.get("Contents", []):
-                results.append({
-                    "Nama File": obj["Key"],
-                    "Ukuran": f"{obj['Size']:,} bytes",
-                    "Terakhir Diubah": obj["LastModified"].strftime("%Y-%m-%d %H:%M") if obj.get("LastModified") else "-",
-                })
-            return results
-        except Exception:
-            return []
-
-    def download_file(self, bucket: str, key: str) -> Optional[bytes]:
-        if not self.client: return None
-        try:
-            obj = self.client.get_object(Bucket=bucket, Key=key)
-            return obj["Body"].read()
-        except Exception as e:
-            log.error(f"MinIO download failed: {e}")
-            return None
-
-    def upload_file(self, bucket: str, key: str, data: bytes) -> bool:
-        if not self.client: return False
-        try:
-            self.ensure_bucket(bucket)
-            self.client.put_object(Bucket=bucket, Key=key, Body=data)
-            return True
-        except Exception as e:
-            log.error(f"MinIO upload failed: {e}")
-            return False
+from app.domains.penilaian_makalah.models import EvaluationResult, IngestionLog
 
 
 class EvaluationRepository:
-    def __init__(self, db_session: AsyncSession):
-        self.db = db_session
+    """Data access layer for evaluation results and ingestion logs."""
 
-    async def save_evaluation(self, paper_filename: str, jabatan: str, result_dict: dict, query_mode: str) -> EvaluationResult:
-        if not self.db:
-            log.warning("DB Session is None. Skipping save.")
-            return None
+    def __init__(self, db: AsyncSession):
+        self._db = db
 
-        scores = result_dict.get("scores", {})
-        final_score = result_dict.get("final_score", 0.0)
-        justification = result_dict.get("justification", {})
-        evidence = result_dict.get("evidence", {})
-        ringkasan = result_dict.get("Ringkasan", "")
-        
-        eval_record = EvaluationResult(
-            paper_filename=paper_filename,
-            jabatan=jabatan,
-            scores=scores,
-            final_score=final_score,
-            justification=justification,
-            evidence=evidence,
-            ringkasan=ringkasan,
-            query_mode=query_mode
-        )
-        self.db.add(eval_record)
-        self.db.commit()
-        self.db.refresh(eval_record)
-        return eval_record
-    
-    async def get_history(self, limit: int):
+    async def get_history(self, limit: int = 100) -> list[EvaluationResult]:
+        """Return the newest evaluation results first."""
         stmt = (
             select(EvaluationResult)
-            .order_by(EvaluationResult.created_at.desc())
+            .order_by(EvaluationResult.created_at.desc(), EvaluationResult.id.desc())
             .limit(limit)
         )
-    
-        result = await self.db.execute(stmt)
-    
-        return result.scalars().all()
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
 
-class IngestionRepository:
-    def __init__(self, db_session: AsyncSession):
-        self.db = db_session
-
-    async def is_ingested(self, filename: str) -> bool:
-        if not self.db: return False
-        # Import IngestionLog locally to avoid circular import if models is loaded weirdly, or just import at top.
-        from .models import IngestionLog
-        log_entry = await self.db.execute(
-            select(IngestionLog).filter(IngestionLog.filename == filename, IngestionLog.status == "success").first()
+    async def save_evaluation(
+        self,
+        paper_filename: str,
+        jabatan: str,
+        result: dict[str, Any],
+        query_mode: str,
+    ) -> EvaluationResult:
+        """Persist a completed evaluation result."""
+        record = EvaluationResult(
+            paper_filename=paper_filename,
+            jabatan=jabatan,
+            query_mode=query_mode,
+            scores=result.get("scores", {}),
+            justification=result.get("justification", {}),
+            evidence=result.get("evidence", {}),
+            uncertainty_metrics=result.get("uncertainty_metrics", {}),
+            ringkasan=result.get("Ringkasan") or result.get("ringkasan") or "",
+            final_score=float(result.get("final_score", 0.0)),
         )
-        return log_entry is not None
+        self._db.add(record)
+        await self._db.commit()
+        await self._db.refresh(record)
+        return record
 
-    async def log_ingestion(self, filename: str, status: str, error_message: str = None):
-        if not self.db: return
-        from .models import IngestionLog
-        log_entry = IngestionLog(filename=filename, status=status, error_message=error_message)
-        self.db.add(log_entry)
-        await self.db.commit()
+    async def create_ingestion_log(
+        self,
+        filename: str,
+        status: str,
+        error_message: str | None = None,
+    ) -> IngestionLog:
+        """Persist an ingestion log entry."""
+        record = IngestionLog(
+            filename=filename,
+            status=status,
+            error_message=error_message,
+        )
+        self._db.add(record)
+        await self._db.commit()
+        await self._db.refresh(record)
+        return record
